@@ -302,6 +302,23 @@
 # define MODE_GEOMETRIC_ENABLED ENABLED
 #endif
 
+#ifndef GEOCTRL_ADP_DEFAULT
+# define GEOCTRL_ADP_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_NUM_DEFAULT
+# define GEOCTRL_NUM_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_RDI_DEFAULT
+# define GEOCTRL_RDI_DEFAULT 10
+#endif
+
+#ifndef GEOCTRL_TIM_DEFAULT
+# define GEOCTRL_TIM_DEFAULT 30
+#endif
+
+
 #ifndef REAL_OR_SITL
 # define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
 #endif

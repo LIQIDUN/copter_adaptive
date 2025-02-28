@@ -577,6 +577,38 @@ const AP_Param::Info Copter::var_info[] = {
     // @Range: 0 - 10000
     // @User: Advanced
 
+    GSCALAR(GeoCtrl_ADP, "GEOCTRL_ADP", GEOCTRL_ADP_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 1
+    // @User: Advanced
+    GSCALAR(GeoCtrl_NUM, "GEOCTRL_NUM", GEOCTRL_NUM_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_RDI, "GEOCTRL_RDI", GEOCTRL_RDI_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 1
+    // @User: Advanced
+    GSCALAR(GeoCtrl_TIM, "GEOCTRL_TIM", GEOCTRL_TIM_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+
+
+
+
 #endif
 
 

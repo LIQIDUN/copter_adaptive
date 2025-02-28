@@ -409,6 +409,11 @@ public:
         k_param_GeoCtrl_GAX,
         k_param_GeoCtrl_GAR = 281,
         k_param_GeoCtrl_BX = 282,
+        k_param_GeoCtrl_ADP = 283,
+        k_param_GeoCtrl_NUM = 284,
+        k_param_GeoCtrl_RDI = 285,
+        k_param_GeoCtrl_TIM = 286,
+
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
@@ -505,6 +510,10 @@ public:
     AP_Float GeoCtrl_GAX;
     AP_Float GeoCtrl_GAR;
     AP_Float GeoCtrl_BX;
+    AP_Int8 GeoCtrl_ADP;
+    AP_Int8 GeoCtrl_NUM;
+    AP_Float GeoCtrl_RDI;
+    AP_Float GeoCtrl_TIM;
 
 
 
