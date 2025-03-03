@@ -320,7 +320,7 @@
 
 
 #ifndef REAL_OR_SITL
-# define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
+# define REAL_OR_SITL 1 // 0 for SITL and 1 for REAL
 #endif
 
 #if !REAL_OR_SITL

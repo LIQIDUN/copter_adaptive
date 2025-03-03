@@ -461,7 +461,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     int locAvailable = ahrs.get_relative_position_NED_origin(statePos);
     if (!locAvailable)
     {
-        // gcs().send_text(MAV_SEVERITY_CRITICAL, "location unavailable.");
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "location unavailable.");
     }
 
     // Ground velocity in meters/second, North/East/Down
@@ -470,12 +470,12 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     {
         if (ahrs.get_velocity_NED(stateVel))
         {
-            ;
+            // gcs().send_text(MAV_SEVERITY_INFO, "Vel available.");
         }
     }
     else
     {
-        // gcs().send_text(MAV_SEVERITY_CRITICAL, "inertial navigation is inactive");
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "inertial navigation is inactive");
     }
 
     // Position Error (ep)
@@ -633,8 +633,25 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     thrustMomentCmd[2] = M.y;
     thrustMomentCmd[3] = M.z;
 
+    AP::logger().Write("GEOM", "TimeUS,exx,exy,exz,evx,evy,evz,erx,ery,erz,ewx,ewy,ewz", "Qffffffffffff",
+                       AP_HAL::micros64(),
+                       (error_x->x),
+                       (error_x->y),
+                       (error_x->z),
+                       (error_v->x),
+                       (error_v->y),
+                       (error_v->z),
+                       (error_R->x),
+                       (error_R->y),
+                       (error_R->z),
+                       (error_w->x),
+                       (error_w->y),
+                       (error_w->z)
+                       );
+
     return thrustMomentCmd;
     // logging
+
     // log the desired rotation matrix and the actual rotation matrix
     // AP::logger().Write("L1AF", "Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "fffffffff",
     //                    Rdes.a.x,
@@ -695,7 +712,7 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f error_w,
     {
         theta_x_dot = (W_x.transposed()) * ev_c1ex * g.GeoCtrl_GAX;
 
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "case1\n");
+        // gcs().send_text(MAV_SEVERITY_CRITICAL, "case1\n");
     }
     else
     {
@@ -712,7 +729,7 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f error_w,
             theta_x_dot.y = g.GeoCtrl_GAX * theta_x_dot.y;
             theta_x_dot.z = g.GeoCtrl_GAX * theta_x_dot.z;
 
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "case2\n");
+            // gcs().send_text(MAV_SEVERITY_CRITICAL, "case2\n");
         }
         else
         {
@@ -728,14 +745,14 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f error_w,
             // theta_x_dot.y = g.GeoCtrl_GAX * theta_x_dot.y;
             // theta_x_dot.z = g.GeoCtrl_GAX * theta_x_dot.z;
 
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "case3\n");
+            // gcs().send_text(MAV_SEVERITY_CRITICAL, "case3\n");
         }
     }
 
     theta_x = theta_x + theta_x_dot * dt;
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.x);
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.y);
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.z);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.x);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.y);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_x.z);
 
     // Z-Axis [zB]
     Quaternion q;
@@ -766,9 +783,9 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f error_w,
 
     theta_R = theta_R + theta_R_dot * dt;
 
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.x);
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.y);
-    gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.z);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.x);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.y);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "%.8f\n", theta_R.z);
 
     Vector3f adaptive_Moment;
     adaptive_Moment = -W_R * theta_R;
@@ -848,10 +865,14 @@ VectorN<float, 4> ModeGeometric::motorMixing(VectorN<float, 4> thrustMomentCmd)
 #elif (REAL_OR_SITL) // parameters for real drone
     const float L = 0.25; // longer distance between adjacent motors
     const float D = 0.25; // shorter distance between adjacent motors
-    const float a_F = 0.0009251;
-    const float b_F = 0.021145;
-    const float a_M = 0.00001211;
-    const float b_M = 0.0009864;
+    // const float a_F = 0.0009251;
+    // const float b_F = 0.021145;
+    // const float a_M = 0.00001211;
+    // const float b_M = 0.0009864;
+    const float a_F = 0.000361;
+    const float b_F = 0.067732;
+    const float a_M = 0.00000503;
+    const float b_M = 0.00007975;
 #endif
 
     // solve for linearizing point
