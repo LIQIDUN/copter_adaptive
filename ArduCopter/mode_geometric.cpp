@@ -239,8 +239,8 @@ void ModeGeometric::run()
         adaptiveTerm = ModeGeometric::AdaptiveController(error_w, error_R, error_x, error_v);
 
         // 测试，加入扰动
-        thrustAndMomentCmd[0] = thrustAndMomentCmd[0] + 1;
-        thrustAndMomentCmd[1] = thrustAndMomentCmd[1] + 0.05;
+        // thrustAndMomentCmd[0] = thrustAndMomentCmd[0] + 1;
+        // thrustAndMomentCmd[1] = thrustAndMomentCmd[1] + 0.05;
     }
     else
     {
@@ -253,8 +253,14 @@ void ModeGeometric::run()
 
     // motor mixing
     VectorN<float, 4> motorPWM;
-    motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
-
+    if(g.GeoCtrl_MIX ==0){
+        motorPWM = motorMixSimple(thrustAndMomentCmd + adaptiveTerm);
+        motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
+    }
+    else{
+        motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
+        motorPWM = motorMixSimple(thrustAndMomentCmd + adaptiveTerm);
+    }
     // motorPWM saturation
     if (motorPWM[0] < 0)
     {
@@ -294,16 +300,28 @@ void ModeGeometric::run()
     int8_t motorEnable = 1;
     if (motors->armed()) // only command the motor PWM when the vehicle is armed.
     {
-        motors->rc_write(0, 1000 + motorEnable * 10 * motorPWM[0]); // manual set motor speed: PWM_MIN/MAX has been forced to 1000/2000
-        motors->rc_write(1, 1000 + motorEnable * 10 * motorPWM[1]); // rc_write is called from <AP_Motors/AP_Motors_Class.h>
-        motors->rc_write(2, 1000 + motorEnable * 10 * motorPWM[2]);
-        motors->rc_write(3, 1000 + motorEnable * 10 * motorPWM[3]);
+        // motors->rc_write(0, 1000 + motorEnable * 10 * motorPWM[0]); // manual set motor speed: PWM_MIN/MAX has been forced to 1000/2000
+        // motors->rc_write(1, 1000 + motorEnable * 10 * motorPWM[1]); // rc_write is called from <AP_Motors/AP_Motors_Class.h>
+        // motors->rc_write(2, 1000 + motorEnable * 10 * motorPWM[2]);
+        // motors->rc_write(3, 1000 + motorEnable * 10 * motorPWM[3]);
+        motors->rc_write(0,motorEnable *1150);
+        motors->rc_write(1,0);
+        motors->rc_write(2,0);
+        motors->rc_write(3,0);
+
     }
     else
     {
         GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "Vehicle not armed.");
         motorEnable = 0; // if the vehicle is not armed, disable the flight.
     }
+    // logging
+    AP::logger().Write("MOUT", "TimeUS,m1,m2,m3,m4", "Qffff",
+                       AP_HAL::micros64(),
+                       motorPWM[0],
+                       motorPWM[1],
+                       motorPWM[2],
+                       motorPWM[3]);
     last_time_in_geometric = now_time_in_geometric;
 }
 
@@ -486,6 +504,10 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     v_error = stateVel - targetVel;
     *error_v = v_error;
 
+
+    // kg_vehicleMass = g.GeoCtrl_MAS; // weight for the real drone
+
+
     // Target force
     target_force.x = kg_vehicleMass * targetAcc.x - g.GeoCtrl_Kpx * r_error.x - g.GeoCtrl_Kvx * v_error.x;
     target_force.y = kg_vehicleMass * targetAcc.y - g.GeoCtrl_Kpy * r_error.y - g.GeoCtrl_Kvy * v_error.y;
@@ -633,6 +655,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     thrustMomentCmd[2] = M.y;
     thrustMomentCmd[3] = M.z;
 
+    // logging
     AP::logger().Write("GEOM", "TimeUS,exx,exy,exz,evx,evy,evz,erx,ery,erz,ewx,ewy,ewz", "Qffffffffffff",
                        AP_HAL::micros64(),
                        (error_x->x),
@@ -646,33 +669,50 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (error_R->z),
                        (error_w->x),
                        (error_w->y),
-                       (error_w->z)
-                       );
+                       (error_w->z));
+    AP::logger().Write("GECT", "TimeUS,tfx,tfy,tfz,tt,mx,my,mz", "Qfffffff",
+                       AP_HAL::micros64(),
+                       (target_force.x),
+                       (target_force.y),
+                       (target_force.z),
+                       (target_thrust),
+                       (M.x),
+                       (M.y),
+                       (M.z)
 
-    return thrustMomentCmd;
-    // logging
+    );
+    AP::logger().Write("GETA", "TimeUS,tpx,tpy,tpz,spx,spy,spz", "Qffffff",
+                       AP_HAL::micros64(),
+                       (targetPos.x),
+                       (targetPos.y),
+                       (targetPos.z),
+                       (statePos.x),
+                       (statePos.y),
+                       (statePos.z)
 
+    );
     // log the desired rotation matrix and the actual rotation matrix
-    // AP::logger().Write("L1AF", "Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "fffffffff",
-    //                    Rdes.a.x,
-    //                    Rdes.a.y,
-    //                    Rdes.a.z,
-    //                    Rdes.b.x,
-    //                    Rdes.b.y,
-    //                    Rdes.b.z,
-    //                    Rdes.c.x,
-    //                    Rdes.c.y,
-    //                    Rdes.c.z);
-    // AP::logger().Write("L1AG", "R11,R12,R13,R21,R22,R23,R31,R32,R33", "fffffffff",
-    //                    R.a.x,
-    //                    R.a.y,
-    //                    R.a.z,
-    //                    R.b.x,
-    //                    R.b.y,
-    //                    R.b.z,
-    //                    R.c.x,
-    //                    R.c.y,
-    //                    R.c.z);
+    AP::logger().Write("L1AF", "Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "fffffffff",
+                       Rdes.a.x,
+                       Rdes.a.y,
+                       Rdes.a.z,
+                       Rdes.b.x,
+                       Rdes.b.y,
+                       Rdes.b.z,
+                       Rdes.c.x,
+                       Rdes.c.y,
+                       Rdes.c.z);
+    AP::logger().Write("L1AG", "R11,R12,R13,R21,R22,R23,R31,R32,R33", "fffffffff",
+                       R.a.x,
+                       R.a.y,
+                       R.a.z,
+                       R.b.x,
+                       R.b.y,
+                       R.b.z,
+                       R.c.x,
+                       R.c.y,
+                       R.c.z);
+    return thrustMomentCmd;
 }
 VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f error_w,
                                                     Vector3f error_R,
@@ -852,6 +892,87 @@ Vector3f ModeGeometric::veeOperator(Matrix3f input)
 
     return output;
 }
+
+VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 4> thrustMomentCmd)
+{
+    VectorN<float, 4> motor_pwm;
+#if (!REAL_OR_SITL) // SITL
+    // const float L = 0.25; // for x layout
+    // const float D = 0.25;
+    const float a_F = 0.0014597;
+    const float b_F = 0.043693;
+    // const float a_M = 0.000011667;
+    // const float b_M = 0.0059137;
+#elif (REAL_OR_SITL) // parameters for real drone
+    // const float L = 0.25; // longer distance between adjacent motors
+    // const float D = 0.25; // shorter distance between adjacent motors
+    
+
+    const float a_F = 0.000361;
+    const float b_F = 0.067732;
+    // const float a_M = 0.00000503;
+    // const float b_M = 0.00007975;
+#endif
+    // const float ct = 0.0480;
+    // float thrust_total = thrustMomentCmd[0];
+    // float M1 = thrustMomentCmd[1];
+    // float M2 = thrustMomentCmd[2];
+    // float M3 = thrustMomentCmd[3];
+
+    VectorN<float, 4> motor_force;
+    VectorN<float, 4> quad_output_mat_fm2f1;
+    VectorN<float, 4> quad_output_mat_fm2f2;
+    VectorN<float, 4> quad_output_mat_fm2f3;
+    VectorN<float, 4> quad_output_mat_fm2f4;
+
+    quad_output_mat_fm2f1[0] = 0.25;
+    quad_output_mat_fm2f1[1] = 0.25;
+    quad_output_mat_fm2f1[2] = 0.25;
+    quad_output_mat_fm2f1[3] = 0.25;
+
+    quad_output_mat_fm2f2[0] = 0;
+    quad_output_mat_fm2f2[1] = -2;
+    quad_output_mat_fm2f2[2] = 0;
+    quad_output_mat_fm2f2[3] = 2;
+
+    quad_output_mat_fm2f3[0] = 2;
+    quad_output_mat_fm2f3[1] = 0;
+    quad_output_mat_fm2f3[2] = -2;
+    quad_output_mat_fm2f3[3] = 0;
+
+    quad_output_mat_fm2f4[0] = -5.20833;
+    quad_output_mat_fm2f4[1] = 5.20833;
+    quad_output_mat_fm2f4[2] = -5.20833;
+    quad_output_mat_fm2f4[3] = 5.20833;
+
+    motor_force[0] = quad_output_mat_fm2f1[0] * thrustMomentCmd[0] + quad_output_mat_fm2f2[0] * thrustMomentCmd[1] + quad_output_mat_fm2f3[0] * thrustMomentCmd[2] + quad_output_mat_fm2f4[0] * thrustMomentCmd[3];
+    motor_force[1] = quad_output_mat_fm2f1[1] * thrustMomentCmd[0] + quad_output_mat_fm2f2[1] * thrustMomentCmd[1] + quad_output_mat_fm2f3[1] * thrustMomentCmd[2] + quad_output_mat_fm2f4[1] * thrustMomentCmd[3];
+    motor_force[2] = quad_output_mat_fm2f1[2] * thrustMomentCmd[0] + quad_output_mat_fm2f2[2] * thrustMomentCmd[1] + quad_output_mat_fm2f3[2] * thrustMomentCmd[2] + quad_output_mat_fm2f4[2] * thrustMomentCmd[3];
+    motor_force[3] = quad_output_mat_fm2f1[3] * thrustMomentCmd[0] + quad_output_mat_fm2f2[3] * thrustMomentCmd[1] + quad_output_mat_fm2f3[3] * thrustMomentCmd[2] + quad_output_mat_fm2f4[3] * thrustMomentCmd[3];
+    // solve for linearizing point
+    // float w0 = (-b_F + sqrtF(b_F * b_F + a_F * thrustMomentCmd[0])) / 2 / a_F;
+
+    //电机编号有问题，先等一下
+    motor_pwm[0] = (-b_F + sqrtF(b_F * b_F + a_F * motor_force[0]*4)) / 2 / a_F;
+    motor_pwm[1] = (-b_F + sqrtF(b_F * b_F + a_F * motor_force[1]*4)) / 2 / a_F;
+    motor_pwm[2] = (-b_F + sqrtF(b_F * b_F + a_F * motor_force[2]*4)) / 2 / a_F;
+    motor_pwm[3] = (-b_F + sqrtF(b_F * b_F + a_F * motor_force[3]*4)) / 2 / a_F;
+    AP::logger().Write("MOMX", "TimeUS,mf1,mf2,mf3,mf4,mp1,mp2,mp3,mp4", "Qffffffff",
+                       AP_HAL::micros64(),
+                       (motor_force[0]),
+                       (motor_force[1]),
+                       (motor_force[2]),
+                       (motor_force[3]),
+                       (motor_pwm[0]),
+                       (motor_pwm[1]),
+                       (motor_pwm[2]),
+                       (motor_pwm[3])
+
+    );
+
+    return motor_pwm;
+}
+
 VectorN<float, 4> ModeGeometric::motorMixing(VectorN<float, 4> thrustMomentCmd)
 {
     VectorN<float, 4> w;
@@ -910,21 +1031,24 @@ VectorN<float, 4> ModeGeometric::motorMixing(VectorN<float, 4> thrustMomentCmd)
     w3 = iterativeMotorMixing(w2, thrustMomentCmd, a_F, b_F, a_M, b_M, L, D);
 
     // logging
-    // AP::logger().Write("L1A1", "m1,m2,m3,m4", "ffff",
-    //                      (double)w[0],
-    //                      (double)w[1],
-    //                      (double)w[2],
-    //                      (double)w[3]);
-    // AP::logger().Write("L1A2", "m1,m2,m3,m4", "ffff",
-    //                      (double)w2[0],
-    //                      (double)w2[1],
-    //                      (double)w2[2],
-    //                      (double)w2[3]);
-    // AP::logger().Write("L1A3", "m1,m2,m3,m4", "ffff",
-    //                      (double)w3[0],
-    //                      (double)w3[1],
-    //                      (double)w3[2],
-    //                      (double)w3[3]);
+    AP::logger().Write("L1A1", "TimeUS,m1,m2,m3,m4", "Qffff",
+                       AP_HAL::micros64(),
+                       (double)w[0],
+                       (double)w[1],
+                       (double)w[2],
+                       (double)w[3]);
+    AP::logger().Write("L1A2", "TimeUS,m1,m2,m3,m4", "Qffff",
+                       AP_HAL::micros64(),
+                       (double)w2[0],
+                       (double)w2[1],
+                       (double)w2[2],
+                       (double)w2[3]);
+    AP::logger().Write("L1A3", "TimeUS,m1,m2,m3,m4", "Qffff",
+                       AP_HAL::micros64(),
+                       (double)w3[0],
+                       (double)w3[1],
+                       (double)w3[2],
+                       (double)w3[3]);
     return w3;
 }
 

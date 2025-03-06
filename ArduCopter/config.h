@@ -318,6 +318,14 @@
 # define GEOCTRL_TIM_DEFAULT 30
 #endif
 
+#ifndef GEOCTRL_MAS_DEFAULT
+# define GEOCTRL_MAS_DEFAULT 0.72
+#endif
+
+#ifndef GEOCTRL_MIX_DEFAULT
+# define GEOCTRL_MIX_DEFAULT 0
+#endif
+
 
 #ifndef REAL_OR_SITL
 # define REAL_OR_SITL 1 // 0 for SITL and 1 for REAL

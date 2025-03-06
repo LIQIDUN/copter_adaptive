@@ -1608,7 +1608,8 @@ public:
 
     #if (!REAL_OR_SITL) // SITL
         // // quad X default parameters
-        const float kg_vehicleMass = 3; // SITL drone mass.    
+        float kg_vehicleMass = 3; // SITL drone mass.    
+        // const float kg_vehicleMass = 2;
         const Matrix3f J = {0.023, 0, 0, 0, 0.023, 0, 0, 0, 0.0459}; // This is pulled from SIM_Motor.cpp
         const Matrix3f Jinv = {43.478, 0, 0, 0, 43.478, 0, 0, 0, 21.786}; // hand-computed
 
@@ -1618,6 +1619,8 @@ public:
         // const Matrix3f Jinv = {370.37, 0, 0, 0, 357.143, 0, 0, 0, 270.27}; // hand-computed
     #elif (REAL_OR_SITL) // Real 
         const float kg_vehicleMass = 0.72;   // weight for the real drone
+        // const float kg_vehicleMass = g.GeoCtrl_MAS;   // weight for the real drone
+        // float kg_vehicleMass;   // weight for the real drone
         const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
         // const Matrix3f Jinv = {496.03, 0, 0, 0, 547.345, 0, 0, 0, 310.559}; // hand-computed
     #endif
@@ -1656,6 +1659,7 @@ private:
     VectorN<float,16> mat4Inv(VectorN<float,4> coefficientRow1, VectorN<float,4> coefficientRow2, VectorN<float,4> coefficientRow3, VectorN<float,4> coefficientRow4);
     Matrix3f JoyStickToTargetAttitude();
     float vector_2norm(const Vector3f A);
+    VectorN<float,4> motorMixSimple(VectorN<float,4> thrustMomentCmd);
 
     
 };

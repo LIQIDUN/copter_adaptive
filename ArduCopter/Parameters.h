@@ -413,7 +413,8 @@ public:
         k_param_GeoCtrl_NUM = 284,
         k_param_GeoCtrl_RDI = 285,
         k_param_GeoCtrl_TIM = 286,
-
+        k_param_GeoCtrl_MAS = 287,
+        k_param_GeoCtrl_MIX = 288,
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
@@ -514,7 +515,8 @@ public:
     AP_Int8 GeoCtrl_NUM;
     AP_Float GeoCtrl_RDI;
     AP_Float GeoCtrl_TIM;
-
+    AP_Float GeoCtrl_MAS;
+    AP_Int8 GeoCtrl_MIX;
 
 
 #if MODE_THROW_ENABLED == ENABLED
