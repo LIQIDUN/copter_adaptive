@@ -174,7 +174,7 @@ void Copter::motors_output()
     if (ap.motor_test) {
         // check if we are performing the motor test
         motor_test_output();
-    } else {
+    } else if (copter.flightmode->mode_number() != Mode::Number::GEOMETRIC){
         // send output signals to motors
         flightmode->output_to_motors();
     }
