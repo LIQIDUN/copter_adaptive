@@ -58,7 +58,133 @@ void Trajectory_Generate_EXIT(float timeInThisRun,
         *targetYaw_ddot = (Vector2f){0, 0};
     }
 }
+void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
+                                 Vector3f *targetPos,
+                                 Vector3f *targetVel,
+                                 Vector3f *targetAcc,
+                                 Vector3f *targetJerk,
+                                 Vector3f *targetSnap,
+                                 Vector2f *targetYaw,
+                                 Vector2f *targetYaw_dot,
+                                 Vector2f *targetYaw_ddot)
+{
+    if (timeInThisRun <= 5)
+    {
+        float PolyCoef[8] = {0, 0, 0, 0, 0, 0.04, 0, 0}; // 加速度0.08 +方向
 
+        {
+            *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, timeInThisRun, 8)}; //-方向
+
+            *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, timeInThisRun, 8)};
+
+            *targetAcc = (Vector3f){0, 0, -polyDiff2Eval(PolyCoef, timeInThisRun, 8)};
+
+            *targetJerk = (Vector3f){0, 0, -polyDiff3Eval(PolyCoef, timeInThisRun, 8)};
+
+            *targetSnap = (Vector3f){0, 0, -polyDiff4Eval(PolyCoef, timeInThisRun, 8)};
+
+            *targetYaw = (Vector2f){1, 0};
+            *targetYaw_dot = (Vector2f){0, 0};
+            *targetYaw_ddot = (Vector2f){0, 0};
+        }
+    }
+    else if (timeInThisRun > 5 && timeInThisRun <= 10)
+    {
+        float PolyCoef[8] = {0, 0, 0, 0, 0, -0.04, 0.4, 1}; // 加速度0.08 +  速度0.4 -方向
+
+        {
+            float time_decrease = timeInThisRun - 5;
+            *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
+
+            *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
+
+            *targetAcc = (Vector3f){0, 0, -polyDiff2Eval(PolyCoef, time_decrease, 8)};
+
+            *targetJerk = (Vector3f){0, 0, -polyDiff3Eval(PolyCoef, time_decrease, 8)};
+
+            *targetSnap = (Vector3f){0, 0, -polyDiff4Eval(PolyCoef, time_decrease, 8)};
+
+            *targetYaw = (Vector2f){1, 0};
+            *targetYaw_dot = (Vector2f){0, 0};
+            *targetYaw_ddot = (Vector2f){0, 0};
+        }
+    }
+    else if (timeInThisRun > 10 && timeInThisRun <= 20)
+    {
+        // Trajectory_Generate_POS(& *targetPos, & *targetVel, & *targetAcc, & *targetJerk, & *targetSnap, & *targetYaw, & *targetYaw_dot, & *targetYaw_ddot);
+        *targetPos = (Vector3f){0, 0, -2};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+    else if (timeInThisRun > 20 && timeInThisRun <= 25)
+    {
+        float PolyCoef[8] = {0, 0, 0, 0, 0, -0.04, 0, 2}; // 加速度0.08 -方向
+
+        {
+            float time_decrease = timeInThisRun - 20;
+            *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
+
+            *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
+
+            *targetAcc = (Vector3f){0, 0, -polyDiff2Eval(PolyCoef, time_decrease, 8)};
+
+            *targetJerk = (Vector3f){0, 0, -polyDiff3Eval(PolyCoef, time_decrease, 8)};
+
+            *targetSnap = (Vector3f){0, 0, -polyDiff4Eval(PolyCoef, time_decrease, 8)};
+
+            *targetYaw = (Vector2f){1, 0};
+            *targetYaw_dot = (Vector2f){0, 0};
+            *targetYaw_ddot = (Vector2f){0, 0};
+        }
+    }
+    else if (timeInThisRun > 25 && timeInThisRun <= 30)
+    {
+        float PolyCoef[8] = {0, 0, 0, 0, 0, 0.04, -0.4, 1}; // 加速度0.08 +  速度0.4 -方向
+
+        {
+            float time_decrease = timeInThisRun - 25;
+            *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
+
+            *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
+
+            *targetAcc = (Vector3f){0, 0, -polyDiff2Eval(PolyCoef, time_decrease, 8)};
+
+            *targetJerk = (Vector3f){0, 0, -polyDiff3Eval(PolyCoef, time_decrease, 8)};
+
+            *targetSnap = (Vector3f){0, 0, -polyDiff4Eval(PolyCoef, time_decrease, 8)};
+
+            *targetYaw = (Vector2f){1, 0};
+            *targetYaw_dot = (Vector2f){0, 0};
+            *targetYaw_ddot = (Vector2f){0, 0};
+        }
+    }
+    else if (timeInThisRun > 30)
+    {
+        *targetPos = (Vector3f){0, 0, 0};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+}
 void Trajectory_Generate_LINE(float timeInThisRun,
                               Vector3f *targetPos,
                               Vector3f *targetVel,
@@ -192,7 +318,7 @@ void Trajectory_Generate_EIGHT(float timeInThisRun,
                                Vector2f *targetYaw_dot,
                                Vector2f *targetYaw_ddot)
 {
-    
+
     float w_circle = 2 * M_PI / T_circle;
     int8_t left_or_right = 0; // left  1  right  -1
     if (sinf(w_circle * timeInThisRun * 0.5) >= 0)

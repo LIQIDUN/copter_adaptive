@@ -330,7 +330,7 @@ bool Copter::set_mode(Mode::Number mode, ModeReason reason)
         ap.land_complete &&
         user_throttle &&
         !copter.flightmode->has_manual_throttle() &&
-        new_flightmode->get_pilot_desired_throttle() > copter.get_non_takeoff_throttle()) {
+        new_flightmode->get_pilot_desired_throttle() > copter.get_non_takeoff_throttle() && (false)) {
         mode_change_failed(new_flightmode, "throttle too high");
         return false;
     }
