@@ -65,14 +65,6 @@ void ModeGeometric::run()
 
     VectorN<float, 4> thrustAndMomentCmd;
 
-    // 1.测试:  只进行姿态控制,保持水平姿态，假设角速度0
-
-    /**/
-    // Matrix3f target_attitude = JoyStickToTargetAttitude();
-    // thrustAndMomentCmd=ModeGeometric::geometricAttitudeController(target_attitude);
-    /**/
-
-    // 2.使用生成的轨迹
     /**/
     static uint32_t initial_time_in_geometric = 0;
     static uint32_t last_time_in_geometric = 0;
@@ -80,27 +72,19 @@ void ModeGeometric::run()
     static Vector3f TRJstartpos; // 完成初始加速，开始跟踪的位置
     static int8_t getposAvailable = 0;
     static int8_t trajectory_num = 0;
+    static int8_t info_send_flag = 0;
+    static int8_t rc_lost_info_flag = 0;
     uint32_t now_time_in_geometric = AP_HAL::micros();
 
     if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
-    { // first or reenter this mode
+    { // 第一次或者再次进入geo模式，也就是新的一次geo飞行
+        // 相当自己写了一个初始化
         initial_time_in_geometric = AP_HAL::micros();
         getposAvailable = ahrs.get_relative_position_NED_origin(enterpos);
 
-        // uint8_t rc6value = rc().channel(CH_6)->percent_input();
-        // if(rc6value<=40){
-        //     trajectory_num = 1;
-        //     gcs().send_text(MAV_SEVERITY_CRITICAL, "POS");
-        // }
-        // if(rc6value>40 && rc6value<60){
-        //     trajectory_num = 2;
-        //     gcs().send_text(MAV_SEVERITY_CRITICAL, "EIGHT");
-        // }
-        // if(rc6value>=60){
-        //     trajectory_num = 3;
-        //     gcs().send_text(MAV_SEVERITY_CRITICAL, "CIRCLE");
-        // }
+        info_send_flag = 0;
         trajectory_num = g.GeoCtrl_NUM;
+        kg_vehicleMass = g.GeoCtrl_MAS;
         gcs().send_text(MAV_SEVERITY_INFO, "Init of Trajectory");
     }
 
@@ -129,73 +113,55 @@ void ModeGeometric::run()
 
         break;
     case 1:
-        Trajectory_Generate_TAKEOFF_AUTO(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    {
+        const float targetAlt = 2;
+        Trajectory_Generate_POS_AUTO(timeInThisRun, targetAlt, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    }
 
-        break;
+    break;
 
     case 2:
         // circle
         {
             float r_circle = g.GeoCtrl_RDI;
             float T_circle = g.GeoCtrl_TIM;
-            float v_circle = 2 * M_PI * r_circle / T_circle;
-            const float acc_start = 0.5; // 加速度
-            float acc_time = v_circle / acc_start;
-            if (timeInThisRun <= acc_time)
-            {
-                Trajectory_Generate_START(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                TRJstartpos = targetPos;
-            }
-            else if (timeInThisRun > acc_time && timeInThisRun <= acc_time + T_circle)
-            {
-                Trajectory_Generate_CIRCLE(timeInThisRun - acc_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos;
-            }
-            else if (timeInThisRun > acc_time + T_circle && timeInThisRun <= acc_time + T_circle + acc_time)
-            {
-                Trajectory_Generate_EXIT(timeInThisRun - acc_time - T_circle, v_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos;
-            }
-            else
-            {
-                Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos + TRJstartpos;
-            }
-        }
+            const float targetAlt = 2;
 
+            Trajectory_Generate_CIRCLE_AUTO(timeInThisRun, targetAlt, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        }
         break;
 
-    case 3:
-        // 8
-        {
-            float r_circle = g.GeoCtrl_RDI;
-            float T_circle = g.GeoCtrl_TIM;
-            float v_circle = 2 * M_PI * r_circle / T_circle;
-            const float acc_start = 0.5; // 加速度
-            float acc_time = v_circle / acc_start;
-            if (timeInThisRun <= acc_time)
-            {
-                Trajectory_Generate_START(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                TRJstartpos = targetPos;
-            }
-            else if (timeInThisRun > acc_time && timeInThisRun <= acc_time + T_circle + T_circle)
-            {
-                Trajectory_Generate_EIGHT(timeInThisRun - acc_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos;
-            }
-            else if (timeInThisRun > acc_time + T_circle + T_circle && timeInThisRun <= acc_time + T_circle + T_circle + acc_time)
-            {
-                Trajectory_Generate_EXIT(timeInThisRun - acc_time - T_circle - T_circle, v_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos;
-            }
-            else
-            {
-                Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-                targetPos = targetPos + TRJstartpos + TRJstartpos;
-            }
-        }
+    // case 3:
+    //     // 8
+    //     {
+    //         float r_circle = g.GeoCtrl_RDI;
+    //         float T_circle = g.GeoCtrl_TIM;
+    //         float v_circle = 2 * M_PI * r_circle / T_circle;
+    //         const float acc_start = 0.5; // 加速度
+    //         float acc_time = v_circle / acc_start;
+    //         if (timeInThisRun <= acc_time)
+    //         {
+    //             Trajectory_Generate_START(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    //             TRJstartpos = targetPos;
+    //         }
+    //         else if (timeInThisRun > acc_time && timeInThisRun <= acc_time + T_circle + T_circle)
+    //         {
+    //             Trajectory_Generate_EIGHT(timeInThisRun - acc_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    //             targetPos = targetPos + TRJstartpos;
+    //         }
+    //         else if (timeInThisRun > acc_time + T_circle + T_circle && timeInThisRun <= acc_time + T_circle + T_circle + acc_time)
+    //         {
+    //             Trajectory_Generate_EXIT(timeInThisRun - acc_time - T_circle - T_circle, v_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    //             targetPos = targetPos + TRJstartpos;
+    //         }
+    //         else
+    //         {
+    //             Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    //             targetPos = targetPos + TRJstartpos + TRJstartpos;
+    //         }
+    //     }
 
-        break;
+    //     break;
     case 4:
         Trajectory_Generate_LINE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         break;
@@ -206,13 +172,7 @@ void ModeGeometric::run()
         break;
     }
 
-    // Trajectory_Generate_SINWAVE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    // Trajectory_Generate_BIGSINWAVE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    // Trajectory_Generate_CIRCLE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-
-    // Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-
-    // start the trajectory tracking from current pos ,instead of the origin
+    // 从进入geo模式的位置开始跟踪
     if (getposAvailable)
     {
         targetPos = targetPos + enterpos;
@@ -264,9 +224,9 @@ void ModeGeometric::run()
     }
     // motorPWM saturation
 
-    #ifndef GEO_PWM_OUT_MIN
-    #define GEO_PWM_OUT_MIN 1
-    #endif
+#ifndef GEO_PWM_OUT_MIN
+#define GEO_PWM_OUT_MIN 1
+#endif
     if (motorPWM[0] < GEO_PWM_OUT_MIN)
     {
         motorPWM[0] = GEO_PWM_OUT_MIN;
@@ -303,188 +263,90 @@ void ModeGeometric::run()
     // disarm the vehicle by setting PWM to 1 when landing is completed
 
     int8_t motorEnable = 1;
-    if (motors->armed()) // only command the motor PWM when the vehicle is armed.
+
+    // 手动紧急停止 Estop开关
+    bool interlock = !SRV_Channels::get_emergency_stop(); // interlock 1 转 0 不转
+
+    // 遥控器失控保护
+    // 在ARM之后可以用，在显示FLYING之后不生效，QGC设置如果失控进入LAND模式
+    if ((copter.failsafe.radio || !copter.ap.rc_receiver_present))
+    {
+        if (rc_lost_info_flag == 0)
+        {
+            GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "RC_LOST");
+            rc_lost_info_flag = 1;
+        }
+
+        interlock = 0;
+        motorEnable = 0;
+        motors->set_interlock(false); // 不转
+    }
+
+    // 根据interlock判断是否关闭电机 1 转 0 不转
+    if (interlock)
+    {
+        motorEnable = 1;
+        motors->set_interlock(true); // 转
+        // LOGGER_WRITE_EVENT(LogEvent::MOTORS_INTERLOCK_ENABLED);
+    }
+    else if (!interlock)
+    {
+        motorEnable = 0;
+        motors->set_interlock(false); // 不转
+
+        // LOGGER_WRITE_EVENT(LogEvent::MOTORS_INTERLOCK_DISABLED);
+    }
+
+    //降落检测
+    GEO_land_detect();
+    if (land_is_ok_flag == 1 && timeInThisRun>10)
+    {
+        motorEnable = 0;
+        motors->set_interlock(false); // 不转
+    }
+    
+    // logging
+    AP::logger().Write("FSAF", "TimeUS,radi,rece,mabl", "Qbbb",
+                       AP_HAL::micros64(),
+                       copter.failsafe.radio,
+                       copter.ap.rc_receiver_present,
+                       motorEnable);
+
+    if (motors->armed() && motorEnable == 1) // only command the motor PWM when the vehicle is armed.
     {
         motors->rc_write(0, 1000 + motorEnable * 10 * motorPWM[0]); // manual set motor speed: PWM_MIN/MAX has been forced to 1000/2000
         motors->rc_write(1, 1000 + motorEnable * 10 * motorPWM[1]); // rc_write is called from <AP_Motors/AP_Motors_Class.h>
         motors->rc_write(2, 1000 + motorEnable * 10 * motorPWM[2]);
         motors->rc_write(3, 1000 + motorEnable * 10 * motorPWM[3]);
 
-        // motors->rc_write(0,motorEnable *1500);
-        // motors->rc_write(1,motorEnable *1500);
-        // motors->rc_write(2,motorEnable *1500);
-        // motors->rc_write(3,motorEnable *1500);
-
-        // if (timeInThisRun < 5)
-        // {
-        //     motors->rc_write(0, motorEnable * 1500);
-        //     motors->rc_write(1, motorEnable * 1500);
-        //     motors->rc_write(2, motorEnable * 1500);
-        //     motors->rc_write(3, motorEnable * 1500);
-        // }
-        // else if (timeInThisRun < 10)
-        // {
         //     motors->rc_write(0, motorEnable * 0);
         //     motors->rc_write(1, motorEnable * 0);
         //     motors->rc_write(2, motorEnable * 0);
         //     motors->rc_write(3, motorEnable * 0);
-        // }
-        // else if (timeInThisRun < 15)
-        // {
-        //     motors->rc_write(0, motorEnable * 1200);
-        //     motors->rc_write(1, motorEnable * 1200);
-        //     motors->rc_write(2, motorEnable * 1200);
-        //     motors->rc_write(3, motorEnable * 1200);
-        // }
-        // else if (timeInThisRun < 20)
-        // {
-        //     motors->rc_write(0, motorEnable * 0);
-        //     motors->rc_write(1, motorEnable * 0);
-        //     motors->rc_write(2, motorEnable * 0);
-        //     motors->rc_write(3, motorEnable * 0);
-        // }
-        // else{
-        //     motors->rc_write(0, motorEnable * 1100);
-        //     motors->rc_write(1, motorEnable * 1100);
-        //     motors->rc_write(2, motorEnable * 1100);
-        //     motors->rc_write(3, motorEnable * 1100);
-        // }
     }
     else
     {
-        GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "Vehicle not armed.");
+        if (info_send_flag == 0)
+        {
+            GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "Vehicle not armed.");
+            info_send_flag = 1;
+        }
+
         motorEnable = 0; // if the vehicle is not armed, disable the flight.
+        motors->rc_write(0, motorEnable * 1000);
+        motors->rc_write(1, motorEnable * 1000);
+        motors->rc_write(2, motorEnable * 1000);
+        motors->rc_write(3, motorEnable * 1000);
     }
     // logging
-    AP::logger().Write("MOUT", "TimeUS,m1,m2,m3,m4", "Qffff",
+    AP::logger().Write("MOUT", "TimeUS,m1,m2,m3,m4,able", "Qffffb",
                        AP_HAL::micros64(),
                        motorPWM[0],
                        motorPWM[1],
                        motorPWM[2],
-                       motorPWM[3]);
+                       motorPWM[3],
+                       motorEnable);
     last_time_in_geometric = now_time_in_geometric;
-}
-
-VectorN<float, 4> ModeGeometric::geometricAttitudeController(Matrix3f target_attitude)
-{
-    Vector3f r_error;
-    Vector3f v_error;
-    Vector3f target_force;
-    Vector3f z_axis;
-    Vector3f x_axis_desired;
-    Vector3f y_axis_desired;
-    Vector3f x_c_des;
-    Vector3f eR, ew, M;
-    // Vector3f e3 = {0, 0, 1};
-
-    Vector3f targetAcc = {0, 0, 0};
-
-    Vector3f statePos;
-    Vector3f stateVel;
-
-    Vector2f positionNE;
-
-    int locAvailable = ahrs.get_relative_position_NED_origin(statePos);
-    if (!locAvailable)
-    {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "location unavailable.");
-    }
-
-    // Ground velocity in meters/second, North/East/Down
-    // order. Check if have_inertial_nav() is true before assigning values to stateVel.
-    if (ahrs.have_inertial_nav())
-    {
-        if (ahrs.get_velocity_NED(stateVel))
-        {
-            ;
-        }
-    }
-    else
-    {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "inertial navigation is inactive");
-    }
-
-    // Position Error (ep)
-    // r_error = statePos - targetPos;
-
-    // Velocity Error (ev)
-    v_error = stateVel;
-
-    // Target force
-    target_force.x = kg_vehicleMass * targetAcc.x - g.GeoCtrl_Kvx * v_error.x;
-    target_force.y = kg_vehicleMass * targetAcc.y - g.GeoCtrl_Kvy * v_error.y;
-    target_force.z = kg_vehicleMass * (targetAcc.z - GRAVITY_MAGNITUDE) - g.GeoCtrl_Kvz * v_error.z;
-
-    // Z-Axis [zB]
-    Quaternion q;
-    ahrs.get_quat_body_to_ned(q);
-
-    Matrix3f R;
-    q.rotation_matrix(R); // transforming the quaternion q to rotation matrix R
-
-    z_axis = R.colz();
-
-    // target thrust [F]
-    float target_thrust = -target_force * z_axis;
-
-    // Calculate axis [zB_des]
-    Vector3f z_axis_desired = -target_force;
-    z_axis_desired.normalize();
-
-    // [eR]
-    Matrix3f Rdes = target_attitude;
-
-    Matrix3f eRM = (Rdes.transposed() * R - R.transposed() * Rdes) / 2;
-    eR = veeOperator(eRM);
-
-    Vector3f Omega = AP::ahrs().get_gyro();
-
-    // compute Omegad: this comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
-
-    Vector3f Omegad = {0, 0, 0};
-    Vector3f Omegad_dot = veeOperator(-hatOperator(Omegad) * hatOperator(Omegad));
-
-    // eomega (angular velocity error)
-    ew = Omega - R.transposed() * Rdes * Omegad;
-
-    // Compute the moment
-    M.x = -g.GeoCtrl_KRx * eR.x - g.GeoCtrl_KOx * ew.x;
-    M.y = -g.GeoCtrl_KRy * eR.y - g.GeoCtrl_KOy * ew.y;
-    M.z = -g.GeoCtrl_KRz * eR.z - g.GeoCtrl_KOz * ew.z;
-    M = M - J * (hatOperator(Omega) * R.transposed() * Rdes * Omegad - R.transposed() * Rdes * Omegad_dot);
-    Vector3f momentAdd = Omega % (J * Omega); // J is the inertia matrix
-    M = M + momentAdd;
-
-    VectorN<float, 4> thrustMomentCmd;
-    thrustMomentCmd[0] = target_thrust;
-    thrustMomentCmd[1] = M.x;
-    thrustMomentCmd[2] = M.y;
-    thrustMomentCmd[3] = M.z;
-
-    // logging
-    // log the desired rotation matrix and the actual rotation matrix
-    AP::logger().Write("L1AF", "Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "fffffffff",
-                       Rdes.a.x,
-                       Rdes.a.y,
-                       Rdes.a.z,
-                       Rdes.b.x,
-                       Rdes.b.y,
-                       Rdes.b.z,
-                       Rdes.c.x,
-                       Rdes.c.y,
-                       Rdes.c.z);
-    AP::logger().Write("L1AG", "R11,R12,R13,R21,R22,R23,R31,R32,R33", "fffffffff",
-                       R.a.x,
-                       R.a.y,
-                       R.a.z,
-                       R.b.x,
-                       R.b.y,
-                       R.b.z,
-                       R.c.x,
-                       R.c.y,
-                       R.c.z);
-
-    return thrustMomentCmd;
 }
 
 VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
@@ -716,9 +578,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (target_thrust),
                        (M.x),
                        (M.y),
-                       (M.z)
-
-    );
+                       (M.z));
     AP::logger().Write("GETA", "TimeUS,tpx,tpy,tpz,spx,spy,spz", "Qffffff",
                        AP_HAL::micros64(),
                        (targetPos.x),
@@ -726,9 +586,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (targetPos.z),
                        (statePos.x),
                        (statePos.y),
-                       (statePos.z)
-
-    );
+                       (statePos.z));
     // log the desired rotation matrix and the actual rotation matrix
     AP::logger().Write("L1AF", "TimeUS,Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "Qfffffffff",
                        AP_HAL::micros64(),
@@ -1047,9 +905,7 @@ VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 4> thrustMomentCm
                        (motor_pwm[0]),
                        (motor_pwm[1]),
                        (motor_pwm[2]),
-                       (motor_pwm[3])
-
-    );
+                       (motor_pwm[3]));
 
     return motor_pwm;
 }
@@ -1313,52 +1169,34 @@ VectorN<float, 9> ModeGeometric::unit_vec(Vector3f q, Vector3f q_dot, Vector3f q
     return uCollection;
 }
 
-Matrix3f ModeGeometric::JoyStickToTargetAttitude()
-{
-
-    float target_roll, target_pitch;
-    get_pilot_desired_lean_angles(target_roll, target_pitch, copter.aparm.angle_max, copter.aparm.angle_max);
-    // convert to deg again
-    target_roll = target_roll / 100.0;
-    target_pitch = target_pitch / 100.0;
-    // limit the value
-    if (target_pitch >= 15)
-    {
-        target_pitch = 15;
-    }
-    if (target_pitch <= -15)
-    {
-        target_pitch = -15;
-    }
-    if (target_roll >= 15)
-    {
-        target_roll = 15;
-    }
-    if (target_roll <= -15)
-    {
-        target_roll = -15;
-    }
-    // deg 2 rad
-    target_roll *= DEG_TO_RAD;
-    target_pitch *= DEG_TO_RAD;
-
-    // Vector3f x_axis_attitude_target={1,0,0};
-    // Vector3f y_axis_attitude_target={0,1,0};
-    // Vector3f z_axis_attitude_target={0,0,1};
-
-    Vector3f x_axis_attitude_target = {cosf(-target_pitch), 0, sinf(-target_pitch)};
-    Vector3f y_axis_attitude_target = {sinf(-target_roll) * sinf(-target_pitch), cosf(-target_roll), -sinf(-target_roll) * cosf(-target_pitch)};
-    Vector3f z_axis_attitude_target = {-cosf(-target_roll) * sinf(-target_pitch), sinf(-target_roll), cosf(-target_roll) * cosf(-target_pitch)};
-
-    Matrix3f target_attitude(Vector3f(x_axis_attitude_target.x, y_axis_attitude_target.x, z_axis_attitude_target.x),
-                             Vector3f(x_axis_attitude_target.y, y_axis_attitude_target.y, z_axis_attitude_target.y),
-                             Vector3f(x_axis_attitude_target.z, y_axis_attitude_target.z, z_axis_attitude_target.z));
-    return target_attitude;
-}
-
 float ModeGeometric::vector_2norm(const Vector3f A)
 {
     float ans;
     ans = (A[0]) * (A[0]) + (A[1]) * (A[1]) + (A[2]) * (A[2]);
     return sqrtf(ans);
+}
+bool ModeGeometric::att_not_safe()
+{
+    return false;
+}
+void ModeGeometric::GEO_land_detect()
+{ // Ground velocity in meters/second, North/East/Down
+    // order. Check if have_inertial_nav() is true before assigning values to stateVel.
+    Vector3f statePos;
+    Vector3f stateVel;
+    int8_t locAvailable = ahrs.get_relative_position_NED_origin(statePos);
+    float flight_alt_now = 0;
+    if (locAvailable)
+    {
+        flight_alt_now = statePos.z;
+    }
+    land_is_ok_flag = 0;
+    // 降落检测--飞行高度
+    if (-flight_alt_now <= 0.3)
+    {
+        land_is_ok_flag = 1;
+        return;
+    }
+
+    return;
 }

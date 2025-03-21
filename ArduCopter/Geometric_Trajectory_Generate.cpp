@@ -1,76 +1,28 @@
 #include "Geometric_Trajectory_Generate.h"
 #include "mode.h"
 
-void Trajectory_Generate_START(float timeInThisRun,
-                               Vector3f *targetPos,
-                               Vector3f *targetVel,
-                               Vector3f *targetAcc,
-                               Vector3f *targetJerk,
-                               Vector3f *targetSnap,
-                               Vector2f *targetYaw,
-                               Vector2f *targetYaw_dot,
-                               Vector2f *targetYaw_ddot)
+// 实现起飞到悬停在targetalt高度，时间从0开始计算，位置零点(0,0,0)测试可用
+void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
+                                             float targetAlt,
+                                             Vector3f *targetPos,
+                                             Vector3f *targetVel,
+                                             Vector3f *targetAcc,
+                                             Vector3f *targetJerk,
+                                             Vector3f *targetSnap,
+                                             Vector2f *targetYaw,
+                                             Vector2f *targetYaw_dot,
+                                             Vector2f *targetYaw_ddot)
 {
-    float PolyCoef[8] = {0, 0, 0, 0, 0, -0.25, 0, 0}; // 加速度0.5 x+方向
-    if (timeInThisRun >= 0)
+    // NED a=0.08
+    const float acc_climb = 0.08; // 加速度0.08
+
+    // 加速时间
+    float time_climb;
+    time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+
+    if (timeInThisRun >= 0 && timeInThisRun <= time_climb)
     {
-        *targetPos = (Vector3f){-polyEval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetVel = (Vector3f){-polyDiffEval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetAcc = (Vector3f){-polyDiff2Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetJerk = (Vector3f){-polyDiff3Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetSnap = (Vector3f){-polyDiff4Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetYaw = (Vector2f){1, 0};
-        *targetYaw_dot = (Vector2f){0, 0};
-        *targetYaw_ddot = (Vector2f){0, 0};
-    }
-}
-void Trajectory_Generate_EXIT(float timeInThisRun,
-                              float v_circle,
-                              Vector3f *targetPos,
-                              Vector3f *targetVel,
-                              Vector3f *targetAcc,
-                              Vector3f *targetJerk,
-                              Vector3f *targetSnap,
-                              Vector2f *targetYaw,
-                              Vector2f *targetYaw_dot,
-                              Vector2f *targetYaw_ddot)
-{
-    float PolyCoef[8] = {0, 0, 0, 0, 0, 0.25, -v_circle, 0}; // 加速度0.5 x-方向
-    if (timeInThisRun >= 0)
-    {
-        *targetPos = (Vector3f){-polyEval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetVel = (Vector3f){-polyDiffEval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetAcc = (Vector3f){-polyDiff2Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetJerk = (Vector3f){-polyDiff3Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetSnap = (Vector3f){-polyDiff4Eval(PolyCoef, timeInThisRun, 8), 0, 0};
-
-        *targetYaw = (Vector2f){1, 0};
-        *targetYaw_dot = (Vector2f){0, 0};
-        *targetYaw_ddot = (Vector2f){0, 0};
-    }
-}
-void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
-                                 Vector3f *targetPos,
-                                 Vector3f *targetVel,
-                                 Vector3f *targetAcc,
-                                 Vector3f *targetJerk,
-                                 Vector3f *targetSnap,
-                                 Vector2f *targetYaw,
-                                 Vector2f *targetYaw_dot,
-                                 Vector2f *targetYaw_ddot)
-{
-    if (timeInThisRun <= 5)
-    {
-        float PolyCoef[8] = {0, 0, 0, 0, 0, 0.04, 0, 0}; // 加速度0.08 +方向
+        float PolyCoef[8] = {0, 0, 0, 0, 0, acc_climb / 2, 0, 0}; // 加速度0.08 +方向
 
         {
             *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, timeInThisRun, 8)}; //-方向
@@ -88,12 +40,12 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
             *targetYaw_ddot = (Vector2f){0, 0};
         }
     }
-    else if (timeInThisRun > 5 && timeInThisRun <= 10)
+    else if (timeInThisRun > time_climb && timeInThisRun <= time_climb * 2)
     {
-        float PolyCoef[8] = {0, 0, 0, 0, 0, -0.04, 0.4, 1}; // 加速度0.08 +  速度0.4 -方向
+        float PolyCoef[8] = {0, 0, 0, 0, 0, -acc_climb / 2, acc_climb * time_climb, targetAlt / 2}; // 加速度0.08 +  速度0.4 -方向
 
         {
-            float time_decrease = timeInThisRun - 5;
+            float time_decrease = timeInThisRun - time_climb;                     // 减速时间
             *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
 
             *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
@@ -109,10 +61,10 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
             *targetYaw_ddot = (Vector2f){0, 0};
         }
     }
-    else if (timeInThisRun > 10 && timeInThisRun <= 20)
+    else
     {
-        // Trajectory_Generate_POS(& *targetPos, & *targetVel, & *targetAcc, & *targetJerk, & *targetSnap, & *targetYaw, & *targetYaw_dot, & *targetYaw_ddot);
-        *targetPos = (Vector3f){0, 0, -2};
+
+        *targetPos = (Vector3f){0, 0, -targetAlt};
 
         *targetVel = (Vector3f){0, 0, 0};
 
@@ -126,12 +78,33 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
         *targetYaw_dot = (Vector2f){0, 0};
         *targetYaw_ddot = (Vector2f){0, 0};
     }
-    else if (timeInThisRun > 20 && timeInThisRun <= 25)
+}
+
+// 实现targetalt高度到降落0高度，时间从0开始计算，位置零点(0,0,-targAlt),测试可用
+void Trajectory_Generate_ALT_TO_LAND_AUTO(float timeInThisRun,
+                                          float targetAlt,
+                                          Vector3f *targetPos,
+                                          Vector3f *targetVel,
+                                          Vector3f *targetAcc,
+                                          Vector3f *targetJerk,
+                                          Vector3f *targetSnap,
+                                          Vector2f *targetYaw,
+                                          Vector2f *targetYaw_dot,
+                                          Vector2f *targetYaw_ddot)
+{
+    // NED a=0.08
+    const float acc_climb = 0.08; // 加速度0.08
+
+    // 加速时间
+    float time_climb;
+    time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+
+    if (timeInThisRun >= 0 && timeInThisRun <= time_climb)
     {
-        float PolyCoef[8] = {0, 0, 0, 0, 0, -0.04, 0, 2}; // 加速度0.08 -方向
+        float PolyCoef[8] = {0, 0, 0, 0, 0, -acc_climb / 2, 0, targetAlt}; // 加速度0.08 -方向
 
         {
-            float time_decrease = timeInThisRun - 20;
+            float time_decrease = timeInThisRun;
             *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
 
             *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
@@ -147,12 +120,12 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
             *targetYaw_ddot = (Vector2f){0, 0};
         }
     }
-    else if (timeInThisRun > 25 && timeInThisRun <= 30)
+    else if (timeInThisRun > time_climb && timeInThisRun <= time_climb * 2)
     {
-        float PolyCoef[8] = {0, 0, 0, 0, 0, 0.04, -0.4, 1}; // 加速度0.08 +  速度0.4 -方向
+        float PolyCoef[8] = {0, 0, 0, 0, 0, acc_climb / 2, -acc_climb * time_climb, targetAlt / 2}; // 加速度0.08 +  速度0.4 -方向
 
         {
-            float time_decrease = timeInThisRun - 25;
+            float time_decrease = timeInThisRun - time_climb;
             *targetPos = (Vector3f){0, 0, -polyEval(PolyCoef, time_decrease, 8)}; //-方向
 
             *targetVel = (Vector3f){0, 0, -polyDiffEval(PolyCoef, time_decrease, 8)};
@@ -168,7 +141,7 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
             *targetYaw_ddot = (Vector2f){0, 0};
         }
     }
-    else if (timeInThisRun > 30)
+    else if (timeInThisRun > time_climb * 2)
     {
         *targetPos = (Vector3f){0, 0, 0};
 
@@ -185,6 +158,324 @@ void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
         *targetYaw_ddot = (Vector2f){0, 0};
     }
 }
+
+// 全自动起飞2m高度，悬停10s，降落，时间从0开始计算，仿真可用
+void Trajectory_Generate_POS_AUTO(float timeInThisRun,
+                                  float targetAlt,
+                                  Vector3f *targetPos,
+                                  Vector3f *targetVel,
+                                  Vector3f *targetAcc,
+                                  Vector3f *targetJerk,
+                                  Vector3f *targetSnap,
+                                  Vector2f *targetYaw,
+                                  Vector2f *targetYaw_dot,
+                                  Vector2f *targetYaw_ddot)
+{
+    // NED a=0.08
+    const float acc_climb = 0.08; // 加速度0.08
+
+    // 加速时间
+    float time_takeoff;
+    time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    float time_land = time_takeoff;
+    // 悬停时间
+    const float time_in_pos = 10;
+
+    if (timeInThisRun >= 0 && timeInThisRun <= time_takeoff)
+    {
+        Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
+                                                targetAlt,
+                                                targetPos,
+                                                targetVel,
+                                                targetAcc,
+                                                targetJerk,
+                                                targetSnap,
+                                                targetYaw,
+                                                targetYaw_dot,
+                                                targetYaw_ddot);
+    }
+
+    else if (timeInThisRun > time_takeoff && timeInThisRun <= time_takeoff + time_in_pos)
+    {
+        // 实现悬停
+        *targetPos = (Vector3f){0, 0, -targetAlt};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+    else if (timeInThisRun > time_takeoff + time_in_pos && timeInThisRun <= time_takeoff + time_in_pos + time_land)
+    {
+        float time_land_operate = timeInThisRun - (time_takeoff + time_in_pos);
+        Trajectory_Generate_ALT_TO_LAND_AUTO(time_land_operate,
+                                             targetAlt,
+                                             targetPos,
+                                             targetVel,
+                                             targetAcc,
+                                             targetJerk,
+                                             targetSnap,
+                                             targetYaw,
+                                             targetYaw_dot,
+                                             targetYaw_ddot);
+        
+    }
+    else
+    {
+        *targetPos = (Vector3f){0, 0, 0};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+}
+
+// 水平加速度0.5 x+方向,时间从0开始计算，位置零点(0,0,0),仿真可用
+void Trajectory_Generate_START_AUTO(float timeInThisRun,
+                                    float finalVel,
+                                    Vector3f *targetPos,
+                                    Vector3f *targetVel,
+                                    Vector3f *targetAcc,
+                                    Vector3f *targetJerk,
+                                    Vector3f *targetSnap,
+                                    Vector2f *targetYaw,
+                                    Vector2f *targetYaw_dot,
+                                    Vector2f *targetYaw_ddot)
+{
+    const float acc_start = 0.5;                              // 加速度
+    float PolyCoef[8] = {0, 0, 0, 0, 0, acc_start / 2, 0, 0}; // 加速度0.5 x+方向
+    float acc_time = finalVel / acc_start;
+    if (timeInThisRun >= 0 && timeInThisRun <= acc_time)
+    {
+        *targetPos = (Vector3f){polyEval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetVel = (Vector3f){polyDiffEval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetAcc = (Vector3f){polyDiff2Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetJerk = (Vector3f){polyDiff3Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetSnap = (Vector3f){polyDiff4Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+    else
+    {
+        float final_pos;
+        final_pos = 0.5 * acc_start * acc_time * acc_time;
+        *targetPos = (Vector3f){final_pos, 0, 0};
+
+        *targetVel = (Vector3f){finalVel, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+}
+// 水平加速度0.5 x-方向,时间从0开始计算，位置零点(0,0,0),初始速度finalvel,仿真可用
+void Trajectory_Generate_EXIT_AUTO(float timeInThisRun,
+                                   float finalVel,
+                                   Vector3f *targetPos,
+                                   Vector3f *targetVel,
+                                   Vector3f *targetAcc,
+                                   Vector3f *targetJerk,
+                                   Vector3f *targetSnap,
+                                   Vector2f *targetYaw,
+                                   Vector2f *targetYaw_dot,
+                                   Vector2f *targetYaw_ddot)
+{
+    const float acc_start = 0.5;                                      // 加速度
+    float PolyCoef[8] = {0, 0, 0, 0, 0, -acc_start / 2, finalVel, 0}; // 加速度0.5 x-方向
+    float acc_time = finalVel / acc_start;
+    if (timeInThisRun >= 0 && timeInThisRun <= acc_time)
+    {
+        *targetPos = (Vector3f){polyEval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetVel = (Vector3f){polyDiffEval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetAcc = (Vector3f){polyDiff2Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetJerk = (Vector3f){polyDiff3Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetSnap = (Vector3f){polyDiff4Eval(PolyCoef, timeInThisRun, 8), 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+    else
+    {
+        float final_pos;
+        final_pos = 0.5 * acc_start * acc_time * acc_time;
+        *targetPos = (Vector3f){final_pos, 0, 0};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+}
+// 时间从0开始计算，从0爬到targetalt，进行圆周飞行，降落，仿真可用
+void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
+                                     float targetAlt,
+                                     float r_circle,
+                                     float T_circle,
+                                     Vector3f *targetPos,
+                                     Vector3f *targetVel,
+                                     Vector3f *targetAcc,
+                                     Vector3f *targetJerk,
+                                     Vector3f *targetSnap,
+                                     Vector2f *targetYaw,
+                                     Vector2f *targetYaw_dot,
+                                     Vector2f *targetYaw_ddot)
+{
+    // 起飞段时间计算
+    const float acc_climb = 0.08;                    // 加速度0.08// NED a=0.08
+    float time_takeoff;                              // 起飞时间
+    time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    float time_land = time_takeoff;
+
+    // 加速段时间和最终速度计算
+    float v_circle = 2 * M_PI * r_circle / T_circle;
+    const float acc_start = 0.5; // 加速度
+    float acc_time = v_circle / acc_start;
+    float acc_range = 0.5 * acc_start * acc_time * acc_time;
+
+    if (timeInThisRun >= 0 && timeInThisRun < time_takeoff)
+    { // 起飞
+        Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
+                                                targetAlt,
+                                                targetPos,
+                                                targetVel,
+                                                targetAcc,
+                                                targetJerk,
+                                                targetSnap,
+                                                targetYaw,
+                                                targetYaw_dot,
+                                                targetYaw_ddot);
+    }
+    else if (timeInThisRun >= time_takeoff && timeInThisRun < time_takeoff + acc_time)
+    { // 水平加速
+        float time_in_acc = timeInThisRun - time_takeoff;
+        Trajectory_Generate_START_AUTO(time_in_acc,
+                                       v_circle,
+                                       targetPos,
+                                       targetVel,
+                                       targetAcc,
+                                       targetJerk,
+                                       targetSnap,
+                                       targetYaw,
+                                       targetYaw_dot,
+                                       targetYaw_ddot);
+        *targetPos = *targetPos + (Vector3f){0, 0, -targetAlt};
+    }
+    else if (timeInThisRun >= time_takeoff + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle)
+    { // 圆周
+        float w_circle = 2 * M_PI / T_circle;
+        float time_in_circle;
+        time_in_circle = timeInThisRun - (time_takeoff + acc_time);
+
+        *targetPos = (Vector3f){sinf(w_circle * time_in_circle) * r_circle, -r_circle + r_circle * cosf(w_circle * time_in_circle), 0};
+
+        *targetVel = (Vector3f){cosf(w_circle * time_in_circle) * r_circle * w_circle, -sinf(w_circle * time_in_circle) * r_circle * w_circle, 0};
+
+        *targetAcc = (Vector3f){-sinf(w_circle * time_in_circle) * r_circle * w_circle * w_circle, -cosf(w_circle * time_in_circle) * r_circle * w_circle * w_circle, 0};
+
+        *targetJerk = (Vector3f){-cosf(w_circle * time_in_circle) * r_circle * w_circle * w_circle * w_circle, sinf(w_circle * time_in_circle) * r_circle * w_circle * w_circle * w_circle, 0};
+
+        *targetSnap = (Vector3f){sinf(w_circle * time_in_circle) * r_circle * w_circle * w_circle * w_circle * w_circle, cosf(w_circle * time_in_circle) * r_circle * w_circle * w_circle * w_circle * w_circle, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+
+        *targetPos = *targetPos + (Vector3f){0, 0, -targetAlt};
+        *targetPos = *targetPos + (Vector3f){acc_range, 0, 0};
+    }
+    else if (timeInThisRun >= time_takeoff + acc_time + T_circle && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time)
+    { // 水平减速
+        float time_in_acc = timeInThisRun - (time_takeoff + acc_time + T_circle);
+        Trajectory_Generate_EXIT_AUTO(time_in_acc,
+                                      v_circle,
+                                      targetPos,
+                                      targetVel,
+                                      targetAcc,
+                                      targetJerk,
+                                      targetSnap,
+                                      targetYaw,
+                                      targetYaw_dot,
+                                      targetYaw_ddot);
+        *targetPos = *targetPos + (Vector3f){0, 0, -targetAlt};
+        *targetPos = *targetPos + (Vector3f){acc_range, 0, 0};
+    }
+    else if (timeInThisRun >= time_takeoff + acc_time + T_circle + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time + time_land)
+    { // 降落
+        float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + acc_time);
+        Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
+                                             targetAlt,
+                                             targetPos,
+                                             targetVel,
+                                             targetAcc,
+                                             targetJerk,
+                                             targetSnap,
+                                             targetYaw,
+                                             targetYaw_dot,
+                                             targetYaw_ddot);
+        //Trajectory_Generate_ALT_TO_LAND_AUTO初始高度-targetALT，不需要加这一句了
+        // *targetPos = *targetPos + (Vector3f){0, 0, -targetAlt};
+
+        *targetPos = *targetPos + (Vector3f){acc_range, 0, 0};
+        *targetPos = *targetPos + (Vector3f){acc_range, 0, 0};
+    }
+    else if (timeInThisRun > time_takeoff + acc_time + T_circle + acc_time + time_land)
+    {   
+        //停在地面2*acc_range
+        *targetPos = (Vector3f){acc_range + acc_range, 0, 0};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetYaw = (Vector2f){1, 0};
+        *targetYaw_dot = (Vector2f){0, 0};
+        *targetYaw_ddot = (Vector2f){0, 0};
+    }
+}
+
 void Trajectory_Generate_LINE(float timeInThisRun,
                               Vector3f *targetPos,
                               Vector3f *targetVel,
@@ -274,38 +565,6 @@ void Trajectory_Generate_BIGSINWAVE(float timeInThisRun,
     }
 }
 
-void Trajectory_Generate_CIRCLE(float timeInThisRun,
-                                float r_circle,
-                                float T_circle,
-                                Vector3f *targetPos,
-                                Vector3f *targetVel,
-                                Vector3f *targetAcc,
-                                Vector3f *targetJerk,
-                                Vector3f *targetSnap,
-                                Vector2f *targetYaw,
-                                Vector2f *targetYaw_dot,
-                                Vector2f *targetYaw_ddot)
-{
-
-    float w_circle = 2 * M_PI / T_circle;
-    if (timeInThisRun >= 0)
-    {
-        *targetPos = (Vector3f){sinf(w_circle * timeInThisRun) * r_circle, -r_circle + r_circle * cosf(w_circle * timeInThisRun), 0};
-
-        *targetVel = (Vector3f){cosf(w_circle * timeInThisRun) * r_circle * w_circle, -sinf(w_circle * timeInThisRun) * r_circle * w_circle, 0};
-
-        *targetAcc = (Vector3f){-sinf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle, -cosf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle, 0};
-
-        *targetJerk = (Vector3f){-cosf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle * w_circle, sinf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle * w_circle, 0};
-
-        *targetSnap = (Vector3f){sinf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle * w_circle * w_circle, cosf(w_circle * timeInThisRun) * r_circle * w_circle * w_circle * w_circle * w_circle, 0};
-
-        *targetYaw = (Vector2f){1, 0};
-        *targetYaw_dot = (Vector2f){0, 0};
-        *targetYaw_ddot = (Vector2f){0, 0};
-    }
-}
-
 void Trajectory_Generate_EIGHT(float timeInThisRun,
                                float r_circle,
                                float T_circle,
@@ -345,6 +604,7 @@ void Trajectory_Generate_EIGHT(float timeInThisRun,
     *targetYaw_ddot = (Vector2f){0, 0};
 }
 
+// 纯定点000轨迹
 void Trajectory_Generate_POS(
     Vector3f *targetPos,
     Vector3f *targetVel,

@@ -1605,12 +1605,13 @@ public:
     bool allows_flip() const override { return true; }
 
     const float GRAVITY_MAGNITUDE = 9.8; // gravitational acceleration
-
-
+    void GEO_land_detect();
+    
+    bool land_is_ok_flag=false;
     #if (!REAL_OR_SITL) // SITL
         // // quad X default parameters
-        float kg_vehicleMass = 3; // SITL drone mass.    
-        // const float kg_vehicleMass = 2;
+        // float kg_vehicleMass = 3; // SITL drone mass.    
+        float kg_vehicleMass;
         const Matrix3f J = {0.023, 0, 0, 0, 0.023, 0, 0, 0, 0.0459}; // This is pulled from SIM_Motor.cpp
         const Matrix3f Jinv = {43.478, 0, 0, 0, 43.478, 0, 0, 0, 21.786}; // hand-computed
 
@@ -1619,7 +1620,8 @@ public:
         // const Matrix3f J = {0.0027, 0, 0, 0, 0.0028, 0, 0, 0, 0.0037}; // This is pulled from SIM_Motor.cpp
         // const Matrix3f Jinv = {370.37, 0, 0, 0, 357.143, 0, 0, 0, 270.27}; // hand-computed
     #elif (REAL_OR_SITL) // Real 
-        const float kg_vehicleMass = 0.72;   // weight for the real drone
+        // const float kg_vehicleMass = 0.72;   // weight for the real drone
+        float kg_vehicleMass;
         // const float kg_vehicleMass = g.GeoCtrl_MAS;   // weight for the real drone
         // float kg_vehicleMass;   // weight for the real drone
         const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
@@ -1632,7 +1634,7 @@ protected:
     const char *name4() const override { return "GEOM"; }
 
 private:
-    VectorN<float, 4> geometricAttitudeController(Matrix3f targetattitude); //simplifed controller ,only control attidude
+    // VectorN<float, 4> geometricAttitudeController(Matrix3f targetattitude); //simplifed controller ,only control attidude
     VectorN<float, 4> GeometricTrajectoryController(
                                                     Vector3f targetPos,
                                                     Vector3f targetVel,
@@ -1658,10 +1660,11 @@ private:
     VectorN<float,4> motorMixing(VectorN<float,4> thrustMomentCmd);
     VectorN<float,4> iterativeMotorMixing(VectorN<float, 4> w_input, VectorN<float, 4> thrustMomentCmd, float a_F, float b_F, float a_M, float b_M, float L, float D);
     VectorN<float,16> mat4Inv(VectorN<float,4> coefficientRow1, VectorN<float,4> coefficientRow2, VectorN<float,4> coefficientRow3, VectorN<float,4> coefficientRow4);
-    Matrix3f JoyStickToTargetAttitude();
+    // Matrix3f JoyStickToTargetAttitude();
     float vector_2norm(const Vector3f A);
     VectorN<float,4> motorMixSimple(VectorN<float,4> thrustMomentCmd);
-
+    
+    bool att_not_safe();
     
 };
 

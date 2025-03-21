@@ -5,25 +5,72 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_HAL/AP_HAL.h>
 #include "Copter.h"
-void Trajectory_Generate_START(float timeInThisRun,
-                               Vector3f *targetPos,
-                               Vector3f *targetVel,
-                               Vector3f *targetAcc,
-                               Vector3f *targetJerk,
-                               Vector3f *targetSnap,
-                               Vector2f *targetYaw,
-                               Vector2f *targetYaw_dot,
-                               Vector2f *targetYaw_ddot);
-void Trajectory_Generate_EXIT(float timeInThisRun,
-                              float v_circle,
-                              Vector3f *targetPos,
-                              Vector3f *targetVel,
-                              Vector3f *targetAcc,
-                              Vector3f *targetJerk,
-                              Vector3f *targetSnap,
-                              Vector2f *targetYaw,
-                              Vector2f *targetYaw_dot,
-                              Vector2f *targetYaw_ddot);
+#include "mode.h"
+
+void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
+                                             float targetAlt,
+                                             Vector3f *targetPos,
+                                             Vector3f *targetVel,
+                                             Vector3f *targetAcc,
+                                             Vector3f *targetJerk,
+                                             Vector3f *targetSnap,
+                                             Vector2f *targetYaw,
+                                             Vector2f *targetYaw_dot,
+                                             Vector2f *targetYaw_ddot);
+
+void Trajectory_Generate_ALT_TO_LAND_AUTO(float timeInThisRun,
+                                          float targetAlt,
+                                          Vector3f *targetPos,
+                                          Vector3f *targetVel,
+                                          Vector3f *targetAcc,
+                                          Vector3f *targetJerk,
+                                          Vector3f *targetSnap,
+                                          Vector2f *targetYaw,
+                                          Vector2f *targetYaw_dot,
+                                          Vector2f *targetYaw_ddot);
+void Trajectory_Generate_POS_AUTO(float timeInThisRun, float targetAlt,
+                                  Vector3f *targetPos,
+                                  Vector3f *targetVel,
+                                  Vector3f *targetAcc,
+                                  Vector3f *targetJerk,
+                                  Vector3f *targetSnap,
+                                  Vector2f *targetYaw,
+                                  Vector2f *targetYaw_dot,
+                                  Vector2f *targetYaw_ddot);
+
+void Trajectory_Generate_START_AUTO(float timeInThisRun,
+                                    float finalVel,
+                                    Vector3f *targetPos,
+                                    Vector3f *targetVel,
+                                    Vector3f *targetAcc,
+                                    Vector3f *targetJerk,
+                                    Vector3f *targetSnap,
+                                    Vector2f *targetYaw,
+                                    Vector2f *targetYaw_dot,
+                                    Vector2f *targetYaw_ddot);
+void Trajectory_Generate_EXIT_AUTO(float timeInThisRun,
+                                   float finalVel,
+                                   Vector3f *targetPos,
+                                   Vector3f *targetVel,
+                                   Vector3f *targetAcc,
+                                   Vector3f *targetJerk,
+                                   Vector3f *targetSnap,
+                                   Vector2f *targetYaw,
+                                   Vector2f *targetYaw_dot,
+                                   Vector2f *targetYaw_ddot);
+
+void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
+                                     float targetAlt,
+                                     float r_circle,
+                                     float T_circle,
+                                     Vector3f *targetPos,
+                                     Vector3f *targetVel,
+                                     Vector3f *targetAcc,
+                                     Vector3f *targetJerk,
+                                     Vector3f *targetSnap,
+                                     Vector2f *targetYaw,
+                                     Vector2f *targetYaw_dot,
+                                     Vector2f *targetYaw_ddot);
 
 void Trajectory_Generate_LINE(float timeInThisRun,
                               Vector3f *targetPos,
@@ -55,18 +102,6 @@ void Trajectory_Generate_BIGSINWAVE(float timeInThisRun,
                                     Vector2f *targetYaw_dot,
                                     Vector2f *targetYaw_ddot);
 
-void Trajectory_Generate_CIRCLE(float timeInThisRun,
-                                float r_circle,
-                                float T_circle,
-                                Vector3f *targetPos,
-                                Vector3f *targetVel,
-                                Vector3f *targetAcc,
-                                Vector3f *targetJerk,
-                                Vector3f *targetSnap,
-                                Vector2f *targetYaw,
-                                Vector2f *targetYaw_dot,
-                                Vector2f *targetYaw_ddot);
-
 void Trajectory_Generate_EIGHT(float timeInThisRun,
                                float r_circle,
                                float T_circle,
@@ -78,15 +113,6 @@ void Trajectory_Generate_EIGHT(float timeInThisRun,
                                Vector2f *targetYaw,
                                Vector2f *targetYaw_dot,
                                Vector2f *targetYaw_ddot);
-void Trajectory_Generate_TAKEOFF_AUTO(float timeInThisRun,
-                                 Vector3f *targetPos,
-                                 Vector3f *targetVel,
-                                 Vector3f *targetAcc,
-                                 Vector3f *targetJerk,
-                                 Vector3f *targetSnap,
-                                 Vector2f *targetYaw,
-                                 Vector2f *targetYaw_dot,
-                                 Vector2f *targetYaw_ddot);
 
 void Trajectory_Generate_POS(
     Vector3f *targetPos,
