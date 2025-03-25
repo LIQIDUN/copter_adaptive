@@ -326,9 +326,12 @@
 # define GEOCTRL_MIX_DEFAULT 0
 #endif
 
+#ifndef GEOCTRL_ALL_DEFAULT
+# define GEOCTRL_ALL_DEFAULT 0.2
+#endif
 
 #ifndef REAL_OR_SITL
-# define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
+# define REAL_OR_SITL 1 // 0 for SITL and 1 for REAL
 #endif
 
 #if !REAL_OR_SITL

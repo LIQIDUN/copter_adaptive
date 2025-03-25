@@ -415,7 +415,7 @@ public:
         k_param_GeoCtrl_TIM = 286,
         k_param_GeoCtrl_MAS = 287,
         k_param_GeoCtrl_MIX = 288,
-
+        k_param_GeoCtrl_ALL = 289,
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
@@ -517,7 +517,7 @@ public:
     AP_Float GeoCtrl_TIM;
     AP_Float GeoCtrl_MAS;
     AP_Int8 GeoCtrl_MIX;
-
+    AP_Float GeoCtrl_ALL;
 
 #if MODE_THROW_ENABLED == ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;

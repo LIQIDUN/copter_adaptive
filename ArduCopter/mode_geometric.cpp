@@ -74,6 +74,7 @@ void ModeGeometric::run()
     static int8_t trajectory_num = 0;
     static int8_t info_send_flag = 0;
     static int8_t rc_lost_info_flag = 0;
+    static float init_alt = 0; // NED D alt 起飞点高度
     uint32_t now_time_in_geometric = AP_HAL::micros();
 
     if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
@@ -81,6 +82,7 @@ void ModeGeometric::run()
         // 相当自己写了一个初始化
         initial_time_in_geometric = AP_HAL::micros();
         getposAvailable = ahrs.get_relative_position_NED_origin(enterpos);
+        init_alt = enterpos.z;//记录起飞点高度
 
         info_send_flag = 0;
         trajectory_num = g.GeoCtrl_NUM;
@@ -131,39 +133,19 @@ void ModeGeometric::run()
         }
         break;
 
-    // case 3:
-    //     // 8
-    //     {
-    //         float r_circle = g.GeoCtrl_RDI;
-    //         float T_circle = g.GeoCtrl_TIM;
-    //         float v_circle = 2 * M_PI * r_circle / T_circle;
-    //         const float acc_start = 0.5; // 加速度
-    //         float acc_time = v_circle / acc_start;
-    //         if (timeInThisRun <= acc_time)
-    //         {
-    //             Trajectory_Generate_START(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    //             TRJstartpos = targetPos;
-    //         }
-    //         else if (timeInThisRun > acc_time && timeInThisRun <= acc_time + T_circle + T_circle)
-    //         {
-    //             Trajectory_Generate_EIGHT(timeInThisRun - acc_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    //             targetPos = targetPos + TRJstartpos;
-    //         }
-    //         else if (timeInThisRun > acc_time + T_circle + T_circle && timeInThisRun <= acc_time + T_circle + T_circle + acc_time)
-    //         {
-    //             Trajectory_Generate_EXIT(timeInThisRun - acc_time - T_circle - T_circle, v_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    //             targetPos = targetPos + TRJstartpos;
-    //         }
-    //         else
-    //         {
-    //             Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-    //             targetPos = targetPos + TRJstartpos + TRJstartpos;
-    //         }
-    //     }
+    case 3:
+        // 8
+        {
+            float r_circle = g.GeoCtrl_RDI;
+            float T_circle = g.GeoCtrl_TIM;
+            const float targetAlt = 2;
 
-    //     break;
+            Trajectory_Generate_EIGHT_AUTO(timeInThisRun, targetAlt, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        }
+
+        break;
     case 4:
-        Trajectory_Generate_LINE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        // Trajectory_Generate_LINE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         break;
 
     default:
@@ -215,11 +197,11 @@ void ModeGeometric::run()
     if (g.GeoCtrl_MIX == 0)
     {
         motorPWM = motorMixSimple(thrustAndMomentCmd + adaptiveTerm);
-        motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
+        // motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
     }
     else
     {
-        motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
+        // motorPWM = motorMixing(thrustAndMomentCmd + adaptiveTerm);
         motorPWM = motorMixSimple(thrustAndMomentCmd + adaptiveTerm);
     }
     // motorPWM saturation
@@ -297,14 +279,14 @@ void ModeGeometric::run()
         // LOGGER_WRITE_EVENT(LogEvent::MOTORS_INTERLOCK_DISABLED);
     }
 
-    //降落检测
-    GEO_land_detect();
-    if (land_is_ok_flag == 1 && timeInThisRun>10)
+    // 降落检测
+    GEO_land_detect(init_alt);
+    if (land_is_ok_flag == 1 && timeInThisRun > 10)
     {
         motorEnable = 0;
         motors->set_interlock(false); // 不转
     }
-    
+
     // logging
     AP::logger().Write("FSAF", "TimeUS,radi,rece,mabl", "Qbbb",
                        AP_HAL::micros64(),
@@ -910,241 +892,6 @@ VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 4> thrustMomentCm
     return motor_pwm;
 }
 
-VectorN<float, 4> ModeGeometric::motorMixing(VectorN<float, 4> thrustMomentCmd)
-{
-    VectorN<float, 4> w;
-#if (!REAL_OR_SITL)       // SITL
-    const float L = 0.25; // for x layout
-    const float D = 0.25;
-    const float a_F = 0.0014597;
-    const float b_F = 0.043693;
-    const float a_M = 0.000011667;
-    const float b_M = 0.0059137;
-#elif (REAL_OR_SITL) // parameters for real drone
-    const float L = 0.25; // longer distance between adjacent motors
-    const float D = 0.25; // shorter distance between adjacent motors
-    // const float a_F = 0.0009251;
-    // const float b_F = 0.021145;
-    // const float a_M = 0.00001211;
-    // const float b_M = 0.0009864;
-    // const float a_F = 0.000361;
-    // const float b_F = 0.067732;
-    const float a_F = 0.001021;
-    const float b_F = 0.036329;
-    const float a_M = 0.00000503;
-    const float b_M = 0.00007975;
-#endif
-
-    // solve for linearizing point
-    float w0 = (-b_F + sqrtF(b_F * b_F + a_F * thrustMomentCmd[0])) / 2 / a_F;
-
-    float c_F = 2 * a_F * w0 + b_F;
-    float c_M = 2 * a_M * w0 + b_M;
-
-    float thrust_biased = 2 * thrustMomentCmd[0] - 4 * b_F * w0;
-    float M1 = thrustMomentCmd[1];
-    float M2 = thrustMomentCmd[2];
-    float M3 = thrustMomentCmd[3];
-
-    // motor mixing for x layout
-    const float c_F4_inv = 1 / (4 * c_F);
-    const float c_FL_inv = 1 / (2 * L * c_F);
-    const float c_FD_inv = 1 / (2 * D * c_F);
-    const float c_M4_inv = 1 / (4 * c_M);
-
-    w[0] = c_F4_inv * thrust_biased - c_FL_inv * M1 + c_FD_inv * M2 + c_M4_inv * M3;
-    w[1] = c_F4_inv * thrust_biased + c_FL_inv * M1 - c_FD_inv * M2 + c_M4_inv * M3;
-    w[2] = c_F4_inv * thrust_biased + c_FL_inv * M1 + c_FD_inv * M2 - c_M4_inv * M3;
-    w[3] = c_F4_inv * thrust_biased - c_FL_inv * M1 - c_FD_inv * M2 - c_M4_inv * M3;
-
-    // 2nd shot on solving for motor speed
-    // output: VectorN<float, 4> new motor speed
-    // input: a_F, b_F, a_M, b_M, w, L, D, thrustMomentCmd
-
-    // motor speed after the second iteration
-    VectorN<float, 4> w2;
-    w2 = iterativeMotorMixing(w, thrustMomentCmd, a_F, b_F, a_M, b_M, L, D);
-
-    // motor speed after the third iteration
-    VectorN<float, 4> w3;
-    w3 = iterativeMotorMixing(w2, thrustMomentCmd, a_F, b_F, a_M, b_M, L, D);
-
-    // logging
-    AP::logger().Write("L1A1", "TimeUS,m1,m2,m3,m4", "Qffff",
-                       AP_HAL::micros64(),
-                       (double)w[0],
-                       (double)w[1],
-                       (double)w[2],
-                       (double)w[3]);
-    AP::logger().Write("L1A2", "TimeUS,m1,m2,m3,m4", "Qffff",
-                       AP_HAL::micros64(),
-                       (double)w2[0],
-                       (double)w2[1],
-                       (double)w2[2],
-                       (double)w2[3]);
-    AP::logger().Write("L1A3", "TimeUS,m1,m2,m3,m4", "Qffff",
-                       AP_HAL::micros64(),
-                       (double)w3[0],
-                       (double)w3[1],
-                       (double)w3[2],
-                       (double)w3[3]);
-    return w3;
-}
-
-VectorN<float, 4> ModeGeometric::iterativeMotorMixing(VectorN<float, 4> w_input, VectorN<float, 4> thrustMomentCmd, float a_F, float b_F, float a_M, float b_M, float L, float D)
-{
-    // The function iterativeMotorMixing computes the motor speed to achieve the desired thrustMoment command
-    // input:
-    // VectorN<float, 4> w_input -- initial guess of the motor speed (linearizing point)
-    // VectorN<float, 4> thrustMomentCmd -- desired thrust and moment command
-    // float a_F -- 2nd-order coefficient for motor's thrust-speed curve
-    // float b_F -- 1st-order coefficient for motor's thrust-speed curve
-    // float a_M -- 2nd-order coefficient for motor's torque-speed curve
-    // float b_M -- 1st-order coefficient for motor's torque-speed curve
-    // float L -- longer distance between adjacent motors
-    // float D -- shorter distance between adjacent motors
-
-    // output:
-    // VectorN<float, 4> w_new new motor speed
-
-    VectorN<float, 4> w_new; // new motor speed
-
-    float w1_square = w_input[0] * w_input[0];
-    float w2_square = w_input[1] * w_input[1];
-    float w3_square = w_input[2] * w_input[2];
-    float w4_square = w_input[3] * w_input[3];
-
-    float c_F1 = -a_F * w1_square;
-    float c_F2 = -a_F * w2_square;
-    float c_F3 = -a_F * w3_square;
-    float c_F4 = -a_F * w4_square;
-
-    float c_M1 = -a_M * w1_square;
-    float c_M2 = -a_M * w2_square;
-    float c_M3 = -a_M * w3_square;
-    float c_M4 = -a_M * w4_square;
-
-    float d_F1 = 2 * a_F * w_input[0] + b_F;
-    float d_F2 = 2 * a_F * w_input[1] + b_F;
-    float d_F3 = 2 * a_F * w_input[2] + b_F;
-    float d_F4 = 2 * a_F * w_input[3] + b_F;
-
-    float d_M1 = 2 * a_M * w_input[0] + b_M;
-    float d_M2 = 2 * a_M * w_input[1] + b_M;
-    float d_M3 = 2 * a_M * w_input[2] + b_M;
-    float d_M4 = 2 * a_M * w_input[3] + b_M;
-
-    VectorN<float, 4> coefficientRow1;
-    VectorN<float, 4> coefficientRow2;
-    VectorN<float, 4> coefficientRow3;
-    VectorN<float, 4> coefficientRow4;
-
-    coefficientRow1[0] = d_F1;
-    coefficientRow1[1] = d_F2;
-    coefficientRow1[2] = d_F3;
-    coefficientRow1[3] = d_F4;
-
-    coefficientRow2[0] = -d_F1;
-    coefficientRow2[1] = d_F2;
-    coefficientRow2[2] = d_F3;
-    coefficientRow2[3] = -d_F4;
-
-    coefficientRow3[0] = d_F1;
-    coefficientRow3[1] = -d_F2;
-    coefficientRow3[2] = d_F3;
-    coefficientRow3[3] = -d_F4;
-
-    coefficientRow4[0] = d_M1;
-    coefficientRow4[1] = d_M2;
-    coefficientRow4[2] = -d_M3;
-    coefficientRow4[3] = -d_M4;
-
-    VectorN<float, 16> coefficientMatrixInv = mat4Inv(coefficientRow1, coefficientRow2, coefficientRow3, coefficientRow4);
-
-    VectorN<float, 4> coefficientInvRow1;
-    VectorN<float, 4> coefficientInvRow2;
-    VectorN<float, 4> coefficientInvRow3;
-    VectorN<float, 4> coefficientInvRow4;
-
-    coefficientInvRow1[0] = coefficientMatrixInv[0];
-    coefficientInvRow1[1] = coefficientMatrixInv[1];
-    coefficientInvRow1[2] = coefficientMatrixInv[2];
-    coefficientInvRow1[3] = coefficientMatrixInv[3];
-
-    coefficientInvRow2[0] = coefficientMatrixInv[4];
-    coefficientInvRow2[1] = coefficientMatrixInv[5];
-    coefficientInvRow2[2] = coefficientMatrixInv[6];
-    coefficientInvRow2[3] = coefficientMatrixInv[7];
-
-    coefficientInvRow3[0] = coefficientMatrixInv[8];
-    coefficientInvRow3[1] = coefficientMatrixInv[9];
-    coefficientInvRow3[2] = coefficientMatrixInv[10];
-    coefficientInvRow3[3] = coefficientMatrixInv[11];
-
-    coefficientInvRow4[0] = coefficientMatrixInv[12];
-    coefficientInvRow4[1] = coefficientMatrixInv[13];
-    coefficientInvRow4[2] = coefficientMatrixInv[14];
-    coefficientInvRow4[3] = coefficientMatrixInv[15];
-
-    VectorN<float, 4> shiftedCmd;
-    shiftedCmd[0] = thrustMomentCmd[0] - c_F1 - c_F2 - c_F3 - c_F4;
-    shiftedCmd[1] = 2 * thrustMomentCmd[1] / L + c_F1 - c_F2 - c_F3 + c_F4;
-    shiftedCmd[2] = 2 * thrustMomentCmd[2] / D - c_F1 + c_F2 - c_F3 + c_F4;
-    shiftedCmd[3] = thrustMomentCmd[3] - c_M1 - c_M2 + c_M3 + c_M4;
-
-    w_new[0] = coefficientInvRow1 * shiftedCmd;
-    w_new[1] = coefficientInvRow2 * shiftedCmd;
-    w_new[2] = coefficientInvRow3 * shiftedCmd;
-    w_new[3] = coefficientInvRow4 * shiftedCmd;
-
-    return w_new;
-}
-VectorN<float, 16> ModeGeometric::mat4Inv(VectorN<float, 4> coefficientRow1, VectorN<float, 4> coefficientRow2, VectorN<float, 4> coefficientRow3, VectorN<float, 4> coefficientRow4)
-{
-    // inverse of a 4x4 matrix
-    // modified from https://stackoverflow.com/a/44446912
-    float A2323 = coefficientRow3[2] * coefficientRow4[3] - coefficientRow3[3] * coefficientRow4[2];
-    float A1323 = coefficientRow3[1] * coefficientRow4[3] - coefficientRow3[3] * coefficientRow4[1];
-    float A1223 = coefficientRow3[1] * coefficientRow4[2] - coefficientRow3[2] * coefficientRow4[1];
-    float A0323 = coefficientRow3[0] * coefficientRow4[3] - coefficientRow3[3] * coefficientRow4[0];
-    float A0223 = coefficientRow3[0] * coefficientRow4[2] - coefficientRow3[2] * coefficientRow4[0];
-    float A0123 = coefficientRow3[0] * coefficientRow4[1] - coefficientRow3[1] * coefficientRow4[0];
-    float A2313 = coefficientRow2[2] * coefficientRow4[3] - coefficientRow2[3] * coefficientRow4[2];
-    float A1313 = coefficientRow2[1] * coefficientRow4[3] - coefficientRow2[3] * coefficientRow4[1];
-    float A1213 = coefficientRow2[1] * coefficientRow4[2] - coefficientRow2[2] * coefficientRow4[1];
-    float A2312 = coefficientRow2[2] * coefficientRow3[3] - coefficientRow2[3] * coefficientRow3[2];
-    float A1312 = coefficientRow2[1] * coefficientRow3[3] - coefficientRow2[3] * coefficientRow3[1];
-    float A1212 = coefficientRow2[1] * coefficientRow3[2] - coefficientRow2[2] * coefficientRow3[1];
-    float A0313 = coefficientRow2[0] * coefficientRow4[3] - coefficientRow2[3] * coefficientRow4[0];
-    float A0213 = coefficientRow2[0] * coefficientRow4[2] - coefficientRow2[2] * coefficientRow4[0];
-    float A0312 = coefficientRow2[0] * coefficientRow3[3] - coefficientRow2[3] * coefficientRow3[0];
-    float A0212 = coefficientRow2[0] * coefficientRow3[2] - coefficientRow2[2] * coefficientRow3[0];
-    float A0113 = coefficientRow2[0] * coefficientRow4[1] - coefficientRow2[1] * coefficientRow4[0];
-    float A0112 = coefficientRow2[0] * coefficientRow3[1] - coefficientRow2[1] * coefficientRow3[0];
-
-    float det = coefficientRow1[0] * (coefficientRow2[1] * A2323 - coefficientRow2[2] * A1323 + coefficientRow2[3] * A1223) - coefficientRow1[1] * (coefficientRow2[0] * A2323 - coefficientRow2[2] * A0323 + coefficientRow2[3] * A0223) + coefficientRow1[2] * (coefficientRow2[0] * A1323 - coefficientRow2[1] * A0323 + coefficientRow2[3] * A0123) - coefficientRow1[3] * (coefficientRow2[0] * A1223 - coefficientRow2[1] * A0223 + coefficientRow2[2] * A0123);
-    det = 1 / det;
-
-    VectorN<float, 16> inv;
-    inv[0] = det * (coefficientRow2[1] * A2323 - coefficientRow2[2] * A1323 + coefficientRow2[3] * A1223);
-    inv[1] = det * -(coefficientRow1[1] * A2323 - coefficientRow1[2] * A1323 + coefficientRow1[3] * A1223);
-    inv[2] = det * (coefficientRow1[1] * A2313 - coefficientRow1[2] * A1313 + coefficientRow1[3] * A1213);
-    inv[3] = det * -(coefficientRow1[1] * A2312 - coefficientRow1[2] * A1312 + coefficientRow1[3] * A1212);
-    inv[4] = det * -(coefficientRow2[0] * A2323 - coefficientRow2[2] * A0323 + coefficientRow2[3] * A0223);
-    inv[5] = det * (coefficientRow1[0] * A2323 - coefficientRow1[2] * A0323 + coefficientRow1[3] * A0223);
-    inv[6] = det * -(coefficientRow1[0] * A2313 - coefficientRow1[2] * A0313 + coefficientRow1[3] * A0213);
-    inv[7] = det * (coefficientRow1[0] * A2312 - coefficientRow1[2] * A0312 + coefficientRow1[3] * A0212);
-    inv[8] = det * (coefficientRow2[0] * A1323 - coefficientRow2[1] * A0323 + coefficientRow2[3] * A0123);
-    inv[9] = det * -(coefficientRow1[0] * A1323 - coefficientRow1[1] * A0323 + coefficientRow1[3] * A0123);
-    inv[10] = det * (coefficientRow1[0] * A1313 - coefficientRow1[1] * A0313 + coefficientRow1[3] * A0113);
-    inv[11] = det * -(coefficientRow1[0] * A1312 - coefficientRow1[1] * A0312 + coefficientRow1[3] * A0112);
-    inv[12] = det * -(coefficientRow2[0] * A1223 - coefficientRow2[1] * A0223 + coefficientRow2[2] * A0123);
-    inv[13] = det * (coefficientRow1[0] * A1223 - coefficientRow1[1] * A0223 + coefficientRow1[2] * A0123);
-    inv[14] = det * -(coefficientRow1[0] * A1213 - coefficientRow1[1] * A0213 + coefficientRow1[2] * A0113);
-    inv[15] = det * (coefficientRow1[0] * A1212 - coefficientRow1[1] * A0212 + coefficientRow1[2] * A0112);
-
-    return inv;
-}
 VectorN<float, 9> ModeGeometric::unit_vec(Vector3f q, Vector3f q_dot, Vector3f q_ddot)
 {
     // This function comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
@@ -1169,7 +916,7 @@ VectorN<float, 9> ModeGeometric::unit_vec(Vector3f q, Vector3f q_dot, Vector3f q
     return uCollection;
 }
 
-float ModeGeometric::vector_2norm(const Vector3f A)
+float ModeGeometric::vector_2norm(Vector3f A)
 {
     float ans;
     ans = (A[0]) * (A[0]) + (A[1]) * (A[1]) + (A[2]) * (A[2]);
@@ -1179,20 +926,21 @@ bool ModeGeometric::att_not_safe()
 {
     return false;
 }
-void ModeGeometric::GEO_land_detect()
+void ModeGeometric::GEO_land_detect(float initalt)
 { // Ground velocity in meters/second, North/East/Down
     // order. Check if have_inertial_nav() is true before assigning values to stateVel.
-    Vector3f statePos;
-    Vector3f stateVel;
-    int8_t locAvailable = ahrs.get_relative_position_NED_origin(statePos);
+    Vector3f statePosLAND;
+    // Vector3f stateVel;
+    int8_t locAvailable = ahrs.get_relative_position_NED_origin(statePosLAND);
     float flight_alt_now = 0;
     if (locAvailable)
     {
-        flight_alt_now = statePos.z;
+        flight_alt_now = statePosLAND.z;
     }
     land_is_ok_flag = 0;
+    
     // 降落检测--飞行高度
-    if (-flight_alt_now <= 0.3)
+    if ((-flight_alt_now) - (-initalt) <= g.GeoCtrl_ALL)
     {
         land_is_ok_flag = 1;
         return;

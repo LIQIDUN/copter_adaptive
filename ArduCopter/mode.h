@@ -1605,7 +1605,7 @@ public:
     bool allows_flip() const override { return true; }
 
     const float GRAVITY_MAGNITUDE = 9.8; // gravitational acceleration
-    void GEO_land_detect();
+    void GEO_land_detect(float initalt);
     
     bool land_is_ok_flag=false;
     #if (!REAL_OR_SITL) // SITL
@@ -1660,8 +1660,8 @@ private:
     VectorN<float,4> motorMixing(VectorN<float,4> thrustMomentCmd);
     VectorN<float,4> iterativeMotorMixing(VectorN<float, 4> w_input, VectorN<float, 4> thrustMomentCmd, float a_F, float b_F, float a_M, float b_M, float L, float D);
     VectorN<float,16> mat4Inv(VectorN<float,4> coefficientRow1, VectorN<float,4> coefficientRow2, VectorN<float,4> coefficientRow3, VectorN<float,4> coefficientRow4);
-    // Matrix3f JoyStickToTargetAttitude();
-    float vector_2norm(const Vector3f A);
+    
+    float vector_2norm(Vector3f A);
     VectorN<float,4> motorMixSimple(VectorN<float,4> thrustMomentCmd);
     
     bool att_not_safe();

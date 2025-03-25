@@ -72,6 +72,19 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
                                      Vector2f *targetYaw_dot,
                                      Vector2f *targetYaw_ddot);
 
+void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
+                                    float targetAlt,
+                                    float r_circle,
+                                    float T_circle,
+                                    Vector3f *targetPos,
+                                    Vector3f *targetVel,
+                                    Vector3f *targetAcc,
+                                    Vector3f *targetJerk,
+                                    Vector3f *targetSnap,
+                                    Vector2f *targetYaw,
+                                    Vector2f *targetYaw_dot,
+                                    Vector2f *targetYaw_ddot);
+
 void Trajectory_Generate_LINE(float timeInThisRun,
                               Vector3f *targetPos,
                               Vector3f *targetVel,
@@ -101,18 +114,6 @@ void Trajectory_Generate_BIGSINWAVE(float timeInThisRun,
                                     Vector2f *targetYaw,
                                     Vector2f *targetYaw_dot,
                                     Vector2f *targetYaw_ddot);
-
-void Trajectory_Generate_EIGHT(float timeInThisRun,
-                               float r_circle,
-                               float T_circle,
-                               Vector3f *targetPos,
-                               Vector3f *targetVel,
-                               Vector3f *targetAcc,
-                               Vector3f *targetJerk,
-                               Vector3f *targetSnap,
-                               Vector2f *targetYaw,
-                               Vector2f *targetYaw_dot,
-                               Vector2f *targetYaw_ddot);
 
 void Trajectory_Generate_POS(
     Vector3f *targetPos,
