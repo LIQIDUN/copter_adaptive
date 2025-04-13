@@ -175,8 +175,11 @@ void ModeGeometric::run()
         thrustAndMomentCmd = ModeGeometric::AdaptiveController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
 
         // 测试，加入扰动
-        // thrustAndMomentCmd[0] = thrustAndMomentCmd[0] + 1;
-        // thrustAndMomentCmd[1] = thrustAndMomentCmd[1] + 0.05;
+
+        const float sin_time_T_disturbance = 4;
+        float sin_time_w_disturbance = 2 * M_PI / sin_time_T_disturbance;
+        // thrustAndMomentCmd[0] = thrustAndMomentCmd[0] + 0.5 * sinf(sin_time_w_disturbance * timeInThisRun);
+        thrustAndMomentCmd[1] = thrustAndMomentCmd[1] + 0.08* sinf(sin_time_w_disturbance * timeInThisRun);
     }
     else
     {
@@ -602,20 +605,35 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
 
     Vector2f positionNE;
 
-    static Matrix3f W_x(Vector3f(1, 0, 0),
-                        Vector3f(0, 1, 0),
-                        Vector3f(0, 0, 1));
+    static uint32_t sin_time = 0;
+    sin_time = AP_HAL::micros();
+    sin_time = (float)0.000001f * sin_time;
+    const float sin_time_T = 4;
+    static float sin_time_w = 2 * M_PI / sin_time_T;
+
+    // static Matrix3f W_x(Vector3f(1, 0, 0),
+    //                     Vector3f(0, 1, 0),
+    //                     Vector3f(0, 0, 1));
+    static Matrix3f W_x;
+    W_x(Vector3f(sinf(sin_time_w * sin_time), 0, 0),
+        Vector3f(0, sinf(sin_time_w * sin_time), 0),
+        Vector3f(0, 0, sinf(sin_time_w * sin_time)));
     Matrix3f W_x_dot(Vector3f(0, 0, 0),
-                        Vector3f(0, 0, 0),
-                        Vector3f(0, 0, 0));
+                     Vector3f(0, 0, 0),
+                     Vector3f(0, 0, 0));
     Matrix3f W_x_ddot(Vector3f(0, 0, 0),
-                        Vector3f(0, 0, 0),
-                        Vector3f(0, 0, 0));
+                      Vector3f(0, 0, 0),
+                      Vector3f(0, 0, 0));
     static Vector3f theta_x = Vector3f(0, 0, 0);
 
-    static Matrix3f W_R(Vector3f(1, 0, 0),
-                        Vector3f(0, 1, 0),
-                        Vector3f(0, 0, 1));
+    // static Matrix3f W_R(Vector3f(1, 0, 0),
+    //                     Vector3f(0, 1, 0),
+    //                     Vector3f(0, 0, 1));
+
+    static Matrix3f W_R;
+    W_R(Vector3f(sinf(sin_time_w * sin_time), 0, 0),
+        Vector3f(0, sinf(sin_time_w * sin_time), 0),
+        Vector3f(0, 0, sinf(sin_time_w * sin_time)));
     static Vector3f theta_R = Vector3f(0, 0, 0);
 
     static uint32_t now_time = 0;
@@ -674,7 +692,7 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     target_force.x = kg_vehicleMass * targetAcc.x - g.GeoCtrl_Kpx * r_error.x - g.GeoCtrl_Kvx * v_error.x;
     target_force.y = kg_vehicleMass * targetAcc.y - g.GeoCtrl_Kpy * r_error.y - g.GeoCtrl_Kvy * v_error.y;
     target_force.z = kg_vehicleMass * (targetAcc.z - GRAVITY_MAGNITUDE) - g.GeoCtrl_Kpz * r_error.z - g.GeoCtrl_Kvz * v_error.z;
-    target_force = target_force - W_x * theta_x;//加入自适应项
+    target_force = target_force - W_x * theta_x; // 加入自适应项
     //
     Vector3f ev_c1ex = v_error + r_error * paramc.x;
 
@@ -726,22 +744,20 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     Matrix3f R;
     q.rotation_matrix(R); // transforming the quaternion q to rotation matrix R
 
-    z_axis = R.colz();//b3
+    z_axis = R.colz(); // b3
 
     // target thrust [F]
     float target_thrust = -target_force * z_axis;
-    
 
     // compute Omegad: this comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
-    Vector3f a_error; // ev_dot   dot(v-v_des)
-    a_error = e3 * GRAVITY_MAGNITUDE - R.colz() * target_thrust / kg_vehicleMass - targetAcc;//ev_dot
+    Vector3f a_error;                                                                         // ev_dot   dot(v-v_des)
+    a_error = e3 * GRAVITY_MAGNITUDE - R.colz() * target_thrust / kg_vehicleMass - targetAcc; // ev_dot
 
     Vector3f target_force_dot; // derivative of target_force
     target_force_dot.x = -g.GeoCtrl_Kpx * v_error.x - g.GeoCtrl_Kvx * a_error.x + kg_vehicleMass * targetJerk.x;
     target_force_dot.y = -g.GeoCtrl_Kpy * v_error.y - g.GeoCtrl_Kvy * a_error.y + kg_vehicleMass * targetJerk.y;
     target_force_dot.z = -g.GeoCtrl_Kpz * v_error.z - g.GeoCtrl_Kvz * a_error.z + kg_vehicleMass * targetJerk.z;
-    target_force_dot = target_force_dot - W_x_dot *theta_x -W_x *theta_x_dot;
-
+    target_force_dot = target_force_dot - W_x_dot * theta_x - W_x * theta_x_dot;
 
     norm_theta_x = vector_2norm(theta_x);
     // Matrix3f theta_x_T(Vector3f(theta_x.x, 0, 0), Vector3f(theta_x.y, 0, 0), Vector3f(theta_x.z, 0, 0));
@@ -750,7 +766,7 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     if (norm_theta_x < g.GeoCtrl_BX || ((fabsf(norm_theta_x - g.GeoCtrl_BX) <= 1e-3f) && ((theta_x_T * (W_x.transposed()) * ev_c1ex).x <= 0)))
     {
 
-        theta_x_ddot = (W_x.transposed()) * ev_c1ex * gamma_x+(W_x.transposed()) * (a_error+v_error*paramc.x)* gamma_x;
+        theta_x_ddot = (W_x.transposed()) * ev_c1ex * gamma_x + (W_x.transposed()) * (a_error + v_error * paramc.x) * gamma_x;
 
         // gcs().send_text(MAV_SEVERITY_CRITICAL, "case1\n");
     }
@@ -777,11 +793,10 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
         }
     }
 
-
     Vector3f Omega = AP::ahrs().get_gyro();
     Vector3f b3_dot = R * hatOperator(Omega) * e3;
 
-    float target_thrust_dot = -target_force_dot * R.colz() - target_force * b3_dot;  //f_dot
+    float target_thrust_dot = -target_force_dot * R.colz() - target_force * b3_dot; // f_dot
 
     Vector3f j_error; // error on jerk  ev_2dot
     j_error = -R.colz() * target_thrust_dot / kg_vehicleMass - b3_dot * target_thrust / kg_vehicleMass - targetJerk;
@@ -790,8 +805,7 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     target_force_ddot.x = -g.GeoCtrl_Kpx * a_error.x - g.GeoCtrl_Kvx * j_error.x + kg_vehicleMass * targetSnap.x;
     target_force_ddot.y = -g.GeoCtrl_Kpy * a_error.y - g.GeoCtrl_Kvy * j_error.y + kg_vehicleMass * targetSnap.y;
     target_force_ddot.z = -g.GeoCtrl_Kpz * a_error.z - g.GeoCtrl_Kvz * j_error.z + kg_vehicleMass * targetSnap.z;
-    target_force_ddot  = target_force_ddot -W_x_ddot *theta_x -  W_x_dot *theta_x_dot*2 -W_x *theta_x_ddot ;
-
+    target_force_ddot = target_force_ddot - W_x_ddot * theta_x - W_x_dot * theta_x_dot * 2 - W_x * theta_x_ddot;
 
     VectorN<float, 9> b3cCollection;                                                // collection of three three-dimensional vectors b3c, b3c_dot, b3c_ddot
     b3cCollection = unit_vec(-target_force, -target_force_dot, -target_force_ddot); // unit_vec function is from geometric controller's git repo: https://github.com/fdcl-gwu/uav_geometric_control/blob/master/matlab/aux_functions/deriv_unit_vector.m
@@ -811,8 +825,6 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     b3c_ddot[0] = b3cCollection[6];
     b3c_ddot[1] = b3cCollection[7];
     b3c_ddot[2] = b3cCollection[8];
-
-
 
     // x_axis_desired = z_axis_desired x [cos(yaw), sin(yaw), 0]^T
     x_c_des[0] = targetYaw[0]; // x
@@ -845,15 +857,17 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     b2c_ddot[1] = b2cCollection[7];
     b2c_ddot[2] = b2cCollection[8];
 
-    
     Vector3f b1c = hatOperator(b2c) * b3c;
     Vector3f b1c_dot = hatOperator(b2c_dot) * b3c + hatOperator(b2c) * b3c_dot;
     Vector3f b1c_ddot = hatOperator(b2c_ddot) * b3c + hatOperator(b2c_dot) * b3c_dot * 2 + hatOperator(b2c) * b3c_ddot;
 
     // [eR]
-    Matrix3f Rdes(b1c,b2c,b3c);
-    Matrix3f Rd_dot(b1c_dot,b2c_dot,b3c_dot);
-    Matrix3f Rd_ddot(b1c_ddot,b2c_ddot,b3c_ddot);
+    Matrix3f Rdes(b1c, b2c, b3c);
+    Matrix3f Rd_dot(b1c_dot, b2c_dot, b3c_dot);
+    Matrix3f Rd_ddot(b1c_ddot, b2c_ddot, b3c_ddot);
+    Rdes.transpose();
+    Rd_dot.transpose();
+    Rd_ddot.transpose();
 
     Matrix3f eRM = (Rdes.transposed() * R - R.transposed() * Rdes) / 2;
     eR = veeOperator(eRM);
@@ -871,14 +885,14 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     M = M - J * (hatOperator(Omega) * R.transposed() * Rdes * Omegad - R.transposed() * Rdes * Omegad_dot);
     Vector3f momentAdd = Omega % (J * Omega); // J is the inertia matrix
     M = M + momentAdd;
-    M = M- W_R *theta_R;
+    M = M - W_R * theta_R;
 
     Vector3f ew_c2er;
     ew_c2er = ew + eR * g.GeoCtrl_C2;
     theta_R_dot = (W_R.transposed()) * ew_c2er * g.GeoCtrl_GAR;
-    Vector3f theta_R_ddot={0,0,0};
-    theta_x = theta_x + theta_x_dot * dt+theta_x_ddot*dt*dt*0.5;
-    theta_R = theta_R + theta_R_dot * dt+theta_R_ddot*dt*dt*0.5;
+    Vector3f theta_R_ddot = {0, 0, 0};
+    theta_x = theta_x + theta_x_dot * dt + theta_x_ddot * dt * dt * 0.5;
+    theta_R = theta_R + theta_R_dot * dt + theta_R_ddot * dt * dt * 0.5;
 
     VectorN<float, 4> thrustMomentCmd;
     thrustMomentCmd[0] = target_thrust;
