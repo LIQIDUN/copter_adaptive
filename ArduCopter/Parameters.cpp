@@ -626,6 +626,48 @@ const AP_Param::Info Copter::var_info[] = {
     // @Units: none
     // @Range: 0 - 100
     // @User: Advanced
+    GSCALAR(GeoCtrl_DB0, "GEOCTRL_DB0", GEOCTRL_DB0_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_DB1, "GEOCTRL_DB1", GEOCTRL_DB1_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_DB2, "GEOCTRL_DB2", GEOCTRL_DB2_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_DB3, "GEOCTRL_DB3", GEOCTRL_DB3_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_TFT, "GEOCTRL_TFT", GEOCTRL_TFT_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
+    GSCALAR(GeoCtrl_DBV, "GEOCTRL_DBV", GEOCTRL_DBV_DEFAULT),
+    // @Param: GEOCTRL_ADP
+    // @DisplayName: kOz for geometric controller
+    // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis
+    // @Units: none
+    // @Range: 0 - 100
+    // @User: Advanced
 
 #endif
 

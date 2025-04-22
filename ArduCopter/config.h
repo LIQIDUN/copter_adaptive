@@ -330,6 +330,30 @@
 # define GEOCTRL_ALL_DEFAULT 0.2
 #endif
 
+#ifndef GEOCTRL_DB0_DEFAULT
+# define GEOCTRL_DB0_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_DB1_DEFAULT
+# define GEOCTRL_DB1_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_DB2_DEFAULT
+# define GEOCTRL_DB2_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_DB3_DEFAULT
+# define GEOCTRL_DB3_DEFAULT 0
+#endif
+
+#ifndef GEOCTRL_TFT_DEFAULT
+# define GEOCTRL_TFT_DEFAULT 10
+#endif
+
+#ifndef GEOCTRL_DBV_DEFAULT
+# define GEOCTRL_DBV_DEFAULT 0
+#endif
+
 #ifndef REAL_OR_SITL
 # define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
 #endif

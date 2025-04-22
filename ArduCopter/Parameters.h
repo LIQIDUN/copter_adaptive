@@ -416,6 +416,12 @@ public:
         k_param_GeoCtrl_MAS = 287,
         k_param_GeoCtrl_MIX = 288,
         k_param_GeoCtrl_ALL = 289,
+        k_param_GeoCtrl_DB0 = 290,
+        k_param_GeoCtrl_DB1 = 291,
+        k_param_GeoCtrl_DB2 = 292,
+        k_param_GeoCtrl_DB3 = 293,
+        k_param_GeoCtrl_TFT = 294,
+        k_param_GeoCtrl_DBV = 295,
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
@@ -518,6 +524,12 @@ public:
     AP_Float GeoCtrl_MAS;
     AP_Int8 GeoCtrl_MIX;
     AP_Float GeoCtrl_ALL;
+    AP_Float GeoCtrl_DB0;
+    AP_Float GeoCtrl_DB1;
+    AP_Float GeoCtrl_DB2;
+    AP_Float GeoCtrl_DB3;
+    AP_Float GeoCtrl_TFT;
+    AP_Int8 GeoCtrl_DBV;
 
 #if MODE_THROW_ENABLED == ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;

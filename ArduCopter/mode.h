@@ -1604,6 +1604,7 @@ public:
     void GEO_land_detect(float initalt);
 
     bool land_is_ok_flag = false;
+    const float sin_time_T = 4;
 #if (!REAL_OR_SITL) // SITL
     // // quad X default parameters
     // float kg_vehicleMass = 3; // SITL drone mass.
@@ -1647,19 +1648,19 @@ private:
         Vector3f targetSnap,
         Vector2f targetYaw,
         Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot);
+        Vector2f targetYaw_ddot,
+        float timeinrun);
 
     Matrix3f hatOperator(Vector3f input);
     Vector3f veeOperator(Matrix3f input);
     VectorN<float, 9> unit_vec(Vector3f q, Vector3f q_dot, Vector3f q_ddot);
-    VectorN<float, 4> motorMixing(VectorN<float, 4> thrustMomentCmd);
     VectorN<float, 4> iterativeMotorMixing(VectorN<float, 4> w_input, VectorN<float, 4> thrustMomentCmd, float a_F, float b_F, float a_M, float b_M, float L, float D);
     VectorN<float, 16> mat4Inv(VectorN<float, 4> coefficientRow1, VectorN<float, 4> coefficientRow2, VectorN<float, 4> coefficientRow3, VectorN<float, 4> coefficientRow4);
 
     float vector_2norm(Vector3f A);
     VectorN<float, 4> motorMixSimple(VectorN<float, 4> thrustMomentCmd);
 
-    bool att_not_safe();
+    // bool att_not_safe();
 };
 
 class ModeSystemId : public Mode

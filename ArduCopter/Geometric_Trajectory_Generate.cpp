@@ -4,6 +4,7 @@
 // 实现起飞到悬停在targetalt高度，时间从0开始计算，位置零点(0,0,0)测试可用
 void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
                                              float targetAlt,
+                                             float takeofftime,
                                              Vector3f *targetPos,
                                              Vector3f *targetVel,
                                              Vector3f *targetAcc,
@@ -14,11 +15,12 @@ void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
                                              Vector2f *targetYaw_ddot)
 {
     // NED a=0.08
-    const float acc_climb = 0.08; // 加速度0.08
+    // const float acc_climb = 0.08; // 加速度0.08
 
     // 加速时间
-    float time_climb;
-    time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+    float time_climb = takeofftime / 2;
+    // time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+    float acc_climb = targetAlt / (time_climb * time_climb);
 
     if (timeInThisRun >= 0 && timeInThisRun <= time_climb)
     {
@@ -83,6 +85,7 @@ void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
 // 实现targetalt高度到降落0高度，时间从0开始计算，位置零点(0,0,-targAlt),测试可用
 void Trajectory_Generate_ALT_TO_LAND_AUTO(float timeInThisRun,
                                           float targetAlt,
+                                          float takeofftime,
                                           Vector3f *targetPos,
                                           Vector3f *targetVel,
                                           Vector3f *targetAcc,
@@ -93,11 +96,16 @@ void Trajectory_Generate_ALT_TO_LAND_AUTO(float timeInThisRun,
                                           Vector2f *targetYaw_ddot)
 {
     // NED a=0.08
-    const float acc_climb = 0.08; // 加速度0.08
+    // const float acc_climb = 0.08; // 加速度0.08
+
+    // // 加速时间
+    // float time_climb;
+    // time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
 
     // 加速时间
-    float time_climb;
-    time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+    float time_climb = takeofftime / 2;
+    // time_climb = sqrtf(targetAlt / acc_climb); // 加速时间
+    float acc_climb = targetAlt / (time_climb * time_climb);
 
     if (timeInThisRun >= 0 && timeInThisRun <= time_climb)
     {
@@ -162,6 +170,8 @@ void Trajectory_Generate_ALT_TO_LAND_AUTO(float timeInThisRun,
 // 全自动起飞2m高度，悬停10s，降落，时间从0开始计算，仿真可用
 void Trajectory_Generate_POS_AUTO(float timeInThisRun,
                                   float targetAlt,
+                                  float takeofftime,
+                                  float  T_circle,
                                   Vector3f *targetPos,
                                   Vector3f *targetVel,
                                   Vector3f *targetAcc,
@@ -172,19 +182,22 @@ void Trajectory_Generate_POS_AUTO(float timeInThisRun,
                                   Vector2f *targetYaw_ddot)
 {
     // NED a=0.08
-    const float acc_climb = 0.08; // 加速度0.08
+    // const float acc_climb = 0.08; // 加速度0.08
 
     // 加速时间
-    float time_takeoff;
-    time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    float time_takeoff = takeofftime;
+    // time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // float acc_climb = 4 * targetAlt / (time_takeoff * time_takeoff);
+
     float time_land = time_takeoff;
     // 悬停时间
-    const float time_in_pos = 10;
+    const float time_in_pos = T_circle;
 
     if (timeInThisRun >= 0 && timeInThisRun <= time_takeoff)
     {
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
+                                                time_takeoff,
                                                 targetPos,
                                                 targetVel,
                                                 targetAcc,
@@ -217,6 +230,7 @@ void Trajectory_Generate_POS_AUTO(float timeInThisRun,
         float time_land_operate = timeInThisRun - (time_takeoff + time_in_pos);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_land_operate,
                                              targetAlt,
+                                             time_takeoff,
                                              targetPos,
                                              targetVel,
                                              targetAcc,
@@ -347,6 +361,7 @@ void Trajectory_Generate_EXIT_AUTO(float timeInThisRun,
 // 时间从0开始计算，从0爬到targetalt，进行圆周飞行，降落，仿真可用
 void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
                                      float targetAlt,
+                                     float takeofftime,
                                      float r_circle,
                                      float T_circle,
                                      Vector3f *targetPos,
@@ -359,9 +374,12 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
                                      Vector2f *targetYaw_ddot)
 {
     // 起飞段时间计算
-    const float acc_climb = 0.08;                    // 加速度0.08// NED a=0.08
-    float time_takeoff;                              // 起飞时间
-    time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // const float acc_climb = 0.08; // 加速度0.08// NED a=0.08
+
+    float time_takeoff = takeofftime; // 起飞时间
+    // time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // float acc_climb = 4 * targetAlt / (time_takeoff * time_takeoff);
+
     float time_land = time_takeoff;
 
     // 加速段时间和最终速度计算
@@ -374,6 +392,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     { // 起飞
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
+                                                time_takeoff,
                                                 targetPos,
                                                 targetVel,
                                                 targetAcc,
@@ -442,6 +461,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
         float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + acc_time);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
                                              targetAlt,
+                                             time_takeoff,
                                              targetPos,
                                              targetVel,
                                              targetAcc,
@@ -477,6 +497,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
 // 时间从0开始计算，从0爬到targetalt，进行8飞行，降落，仿真可用
 void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
                                     float targetAlt,
+                                    float takeofftime,
                                     float r_circle,
                                     float T_circle,
                                     Vector3f *targetPos,
@@ -488,10 +509,14 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
                                     Vector2f *targetYaw_dot,
                                     Vector2f *targetYaw_ddot)
 {
+
     // 起飞段时间计算
-    const float acc_climb = 0.08;                    // 加速度0.08// NED a=0.08
-    float time_takeoff;                              // 起飞时间
-    time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // const float acc_climb = 0.08; // 加速度0.08// NED a=0.08
+
+    float time_takeoff = takeofftime; // 起飞时间
+    // time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // float acc_climb = 4 * targetAlt / (time_takeoff * time_takeoff);
+
     float time_land = time_takeoff;
 
     // 加速段时间和最终速度计算
@@ -504,6 +529,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     { // 起飞
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
+                                                time_takeoff,
                                                 targetPos,
                                                 targetVel,
                                                 targetAcc,
@@ -583,6 +609,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
         float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + T_circle + acc_time);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
                                              targetAlt,
+                                             time_takeoff,
                                              targetPos,
                                              targetVel,
                                              targetAcc,
