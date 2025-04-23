@@ -120,7 +120,8 @@ void ModeGeometric::run()
     {
         float T_circle = g.GeoCtrl_TIM;
         const float targetAlt = 2;
-        Trajectory_Generate_POS_AUTO(timeInThisRun, targetAlt, take_off_time, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        in_horizon_flight = false;
+        Trajectory_Generate_POS_AUTO(timeInThisRun, targetAlt, take_off_time, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
     }
 
     break;
@@ -131,8 +132,8 @@ void ModeGeometric::run()
             float r_circle = g.GeoCtrl_RDI;
             float T_circle = g.GeoCtrl_TIM;
             const float targetAlt = 2;
-
-            Trajectory_Generate_CIRCLE_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+            in_horizon_flight = false;
+            Trajectory_Generate_CIRCLE_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         }
         break;
 
@@ -142,14 +143,20 @@ void ModeGeometric::run()
             float r_circle = g.GeoCtrl_RDI;
             float T_circle = g.GeoCtrl_TIM;
             const float targetAlt = 2;
-
-            Trajectory_Generate_EIGHT_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+            in_horizon_flight = false;
+            Trajectory_Generate_EIGHT_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         }
 
         break;
     case 4:
-        // Trajectory_Generate_LINE(timeInThisRun, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
-        break;
+    {
+        float r_circle = g.GeoCtrl_RDI;
+        float T_circle = g.GeoCtrl_TIM;
+        const float targetAlt = 2;
+        in_horizon_flight = false;
+        Trajectory_Generate_LSR_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    }
+    break;
 
     default:
         Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
@@ -185,23 +192,26 @@ void ModeGeometric::run()
         // 打开自适应
         thrustAndMomentCmd = ModeGeometric::AdaptiveController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun);
 
-        // 测试，加入扰动
-        if (g.GeoCtrl_DBV == 0)
+        if (is_in_horizon_flight(timeInThisRun))
         {
-            thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
-            thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
-            thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
-            thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
-        }
-        else if (g.GeoCtrl_DBV == 1)
-        {
-            float sin_time = timeInThisRun;
-            float sin_time_w = 2 * M_PI / sin_time_T;
+            // 测试，加入扰动
+            if (g.GeoCtrl_DBV == 0)
+            {
+                thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
+                thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
+                thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
+                thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
+            }
+            else if (g.GeoCtrl_DBV == 1)
+            {
+                float sin_time = timeInThisRun;
+                float sin_time_w = 2 * M_PI / sin_time_T;
 
-            thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
+            }
         }
     }
     else if (g.GeoCtrl_ADP == 2)
@@ -209,23 +219,26 @@ void ModeGeometric::run()
         // 关闭自适应，但是还有扰动
         thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
 
-        // 测试，加入扰动
-        if (g.GeoCtrl_DBV == 0)
+        if (is_in_horizon_flight(timeInThisRun))
         {
-            thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
-            thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
-            thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
-            thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
-        }
-        else if (g.GeoCtrl_DBV == 1)
-        {
-            float sin_time = timeInThisRun;
-            float sin_time_w = 2 * M_PI / sin_time_T;
+            // 测试，加入扰动
+            if (g.GeoCtrl_DBV == 0)
+            {
+                thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
+                thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
+                thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
+                thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
+            }
+            else if (g.GeoCtrl_DBV == 1)
+            {
+                float sin_time = timeInThisRun;
+                float sin_time_w = 2 * M_PI / sin_time_T;
 
-            thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
-            thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
+                thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
+            }
         }
     }
 
@@ -363,6 +376,12 @@ void ModeGeometric::run()
                        motorPWM[2],
                        motorPWM[3],
                        motorEnable);
+    AP::logger().Write("TMRD", "TimeUS,tm0,tm1,tm2,tm3", "Qffff",
+                       AP_HAL::micros64(),
+                       (thrustAndMomentCmd[0]),
+                       (thrustAndMomentCmd[1]),
+                       (thrustAndMomentCmd[2]),
+                       (thrustAndMomentCmd[3]));
     last_time_in_geometric = now_time_in_geometric;
 }
 
@@ -1071,12 +1090,8 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
 
     theta_x = theta_x + theta_x_dot * dt;
     theta_R = theta_R + theta_R_dot * dt;
-    // if (time_in_adp > g.GeoCtrl_TFT && (fabsf(statePos.z - targetPos.z) > 0.15 || land_is_ok_flag == 1))
-    // {
-    //     theta_x = {0, 0, 0};
-    //     theta_R = {0, 0, 0};
-    // }
-    if (land_is_ok_flag == 1)
+
+    if (land_is_ok_flag == 1 || (!is_in_horizon_flight(timeinrun)))
     {
         theta_x = {0, 0, 0};
         theta_R = {0, 0, 0};
@@ -1367,4 +1382,17 @@ void ModeGeometric::GEO_land_detect(float initalt)
     }
 
     return;
+}
+
+bool ModeGeometric::is_in_horizon_flight(float flight_time)
+{
+
+    if (flight_time > g.GeoCtrl_TFT && in_horizon_flight)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }

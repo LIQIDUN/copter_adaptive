@@ -1605,6 +1605,10 @@ public:
 
     bool land_is_ok_flag = false;
     const float sin_time_T = 4;
+
+    bool in_horizon_flight =false;
+    
+    bool is_in_horizon_flight(float flight_time);
 #if (!REAL_OR_SITL) // SITL
     // // quad X default parameters
     // float kg_vehicleMass = 3; // SITL drone mass.
