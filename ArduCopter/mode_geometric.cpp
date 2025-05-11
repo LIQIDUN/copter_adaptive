@@ -133,7 +133,8 @@ void ModeGeometric::run()
             float T_circle = g.GeoCtrl_TIM;
             const float targetAlt = 2;
             in_horizon_flight = false;
-            Trajectory_Generate_CIRCLE_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+            in_trj_flight = false;
+            Trajectory_Generate_CIRCLE_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         }
         break;
 
@@ -144,7 +145,8 @@ void ModeGeometric::run()
             float T_circle = g.GeoCtrl_TIM;
             const float targetAlt = 2;
             in_horizon_flight = false;
-            Trajectory_Generate_EIGHT_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+            in_trj_flight = false;
+            Trajectory_Generate_EIGHT_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         }
 
         break;
@@ -154,7 +156,8 @@ void ModeGeometric::run()
         float T_circle = g.GeoCtrl_TIM;
         const float targetAlt = 2;
         in_horizon_flight = false;
-        Trajectory_Generate_LSR_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        in_trj_flight = false;
+        Trajectory_Generate_LSR_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
     }
     break;
 
@@ -382,6 +385,10 @@ void ModeGeometric::run()
                        (thrustAndMomentCmd[1]),
                        (thrustAndMomentCmd[2]),
                        (thrustAndMomentCmd[3]));
+    AP::logger().Write("TIMT", "TimeUS,isf,trj", "Qbb",
+                       AP_HAL::micros64(),
+                       (in_horizon_flight),
+                       (in_trj_flight));
     last_time_in_geometric = now_time_in_geometric;
 }
 

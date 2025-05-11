@@ -371,6 +371,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
                                      float r_circle,
                                      float T_circle,
                                      bool *in_flight,
+                                     bool *in_trj,
                                      Vector3f *targetPos,
                                      Vector3f *targetVel,
                                      Vector3f *targetAcc,
@@ -398,6 +399,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     if (timeInThisRun >= 0 && timeInThisRun < time_takeoff)
     { // 起飞
         *in_flight = 0;
+        *in_trj = 0;
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
                                                 time_takeoff,
@@ -413,6 +415,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff && timeInThisRun < time_takeoff + acc_time)
     { // 水平加速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - time_takeoff;
         Trajectory_Generate_START_AUTO(time_in_acc,
                                        v_circle,
@@ -429,6 +432,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle)
     { // 圆周
         *in_flight = 1;
+        *in_trj = 1;
         float w_circle = 2 * M_PI / T_circle;
         float time_in_circle;
         time_in_circle = timeInThisRun - (time_takeoff + acc_time);
@@ -453,6 +457,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time)
     { // 水平减速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - (time_takeoff + acc_time + T_circle);
         Trajectory_Generate_EXIT_AUTO(time_in_acc,
                                       v_circle,
@@ -470,6 +475,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time + time_land)
     { // 降落
         *in_flight = 0;
+        *in_trj = 0;
         float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + acc_time);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
                                              targetAlt,
@@ -492,6 +498,7 @@ void Trajectory_Generate_CIRCLE_AUTO(float timeInThisRun,
     {
         // 停在地面2*acc_range
         *in_flight = 0;
+        *in_trj = 0;
         *targetPos = (Vector3f){acc_range + acc_range, 0, 0};
 
         *targetVel = (Vector3f){0, 0, 0};
@@ -514,6 +521,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
                                     float r_circle,
                                     float T_circle,
                                     bool *in_flight,
+                                    bool *in_trj,
                                     Vector3f *targetPos,
                                     Vector3f *targetVel,
                                     Vector3f *targetAcc,
@@ -542,6 +550,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     if (timeInThisRun >= 0 && timeInThisRun < time_takeoff)
     { // 起飞
         *in_flight = 0;
+        *in_trj = 0;
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
                                                 time_takeoff,
@@ -557,6 +566,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff && timeInThisRun < time_takeoff + acc_time)
     { // 水平加速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - time_takeoff;
         Trajectory_Generate_START_AUTO(time_in_acc,
                                        v_circle,
@@ -574,6 +584,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     {
         // 圆周
         *in_flight = 1;
+        *in_trj = 1;
         float w_circle = 2 * M_PI / T_circle;
         float time_in_circle;
         time_in_circle = timeInThisRun - (time_takeoff + acc_time);
@@ -608,6 +619,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle + T_circle && timeInThisRun < time_takeoff + acc_time + T_circle + T_circle + acc_time)
     { // 水平减速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - (time_takeoff + acc_time + T_circle + T_circle);
         Trajectory_Generate_EXIT_AUTO(time_in_acc,
                                       v_circle,
@@ -625,6 +637,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle + T_circle + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle + T_circle + acc_time + time_land)
     { // 降落
         *in_flight = 0;
+        *in_trj = 0;
         float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + T_circle + acc_time);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
                                              targetAlt,
@@ -647,6 +660,7 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
     {
         // 停在地面2*acc_range
         *in_flight = 0;
+        *in_trj = 0;
         *targetPos = (Vector3f){acc_range + acc_range, 0, 0};
 
         *targetVel = (Vector3f){0, 0, 0};
@@ -670,6 +684,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
                                   float r_circle,
                                   float T_circle,
                                   bool *in_flight,
+                                  bool *in_trj,
                                   Vector3f *targetPos,
                                   Vector3f *targetVel,
                                   Vector3f *targetAcc,
@@ -698,6 +713,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     if (timeInThisRun >= 0 && timeInThisRun < time_takeoff)
     { // 起飞
         *in_flight = 0;
+        *in_trj = 0;
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
                                                 time_takeoff,
@@ -713,6 +729,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff && timeInThisRun < time_takeoff + acc_time)
     { // 水平加速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - time_takeoff;
         Trajectory_Generate_START_AUTO(time_in_acc,
                                        v_circle,
@@ -729,6 +746,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle)
     { // LSR
         *in_flight = 1;
+        *in_trj = 1;
         float w_circle = 2 * M_PI / T_circle;
         float time_in_circle;
         time_in_circle = timeInThisRun - (time_takeoff + acc_time);
@@ -763,6 +781,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time)
     { // 水平减速
         *in_flight = 1;
+        *in_trj = 0;
         float time_in_acc = timeInThisRun - (time_takeoff + acc_time + T_circle);
         Trajectory_Generate_EXIT_AUTO(time_in_acc,
                                       v_circle,
@@ -780,6 +799,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     else if (timeInThisRun >= time_takeoff + acc_time + T_circle + acc_time && timeInThisRun < time_takeoff + acc_time + T_circle + acc_time + time_land)
     { // 降落
         *in_flight = 0;
+        *in_trj = 0;
         float time_in_land = timeInThisRun - (time_takeoff + acc_time + T_circle + acc_time);
         Trajectory_Generate_ALT_TO_LAND_AUTO(time_in_land,
                                              targetAlt,
@@ -802,6 +822,7 @@ void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
     {
         // 停在地面2*acc_range
         *in_flight = 0;
+        *in_trj = 0;
         *targetPos = (Vector3f){acc_range + acc_range, 0, 0};
 
         *targetVel = (Vector3f){0, 0, 0};

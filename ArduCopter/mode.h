@@ -1607,6 +1607,7 @@ public:
     const float sin_time_T = 4;
 
     bool in_horizon_flight =false;
+    bool in_trj_flight =false;
     
     bool is_in_horizon_flight(float flight_time);
 #if (!REAL_OR_SITL) // SITL
