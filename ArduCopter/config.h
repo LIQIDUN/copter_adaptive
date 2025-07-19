@@ -354,6 +354,74 @@
 # define GEOCTRL_DBV_DEFAULT 0
 #endif
 
+#ifndef GEOCTRL_VBS_DEFAULT
+# define GEOCTRL_VBS_DEFAULT 10
+#endif
+
+#ifndef GEOCTRL_VBE_DEFAULT
+# define GEOCTRL_VBE_DEFAULT 15
+#endif
+
+#ifndef GEOCTRL_VSS_DEFAULT
+# define GEOCTRL_VSS_DEFAULT 20
+#endif
+
+#ifndef GEOCTRL_VSE_DEFAULT
+# define GEOCTRL_VSE_DEFAULT 25
+#endif
+
+#ifndef GEOCTRL_VDS_DEFAULT
+# define GEOCTRL_VDS_DEFAULT 30
+#endif
+
+#ifndef GEOCTRL_VDE_DEFAULT
+# define GEOCTRL_VDE_DEFAULT 35
+#endif
+
+#ifndef GEOCTRL_VLS_DEFAULT
+# define GEOCTRL_VLS_DEFAULT 40
+#endif
+
+#ifndef GEOCTRL_VLE_DEFAULT
+# define GEOCTRL_VLE_DEFAULT 40.5
+#endif
+
+#ifndef GEOCTRL_QBS_DEFAULT
+# define GEOCTRL_QBS_DEFAULT 10
+#endif
+
+#ifndef GEOCTRL_QBE_DEFAULT
+# define GEOCTRL_QBE_DEFAULT 15
+#endif
+
+#ifndef GEOCTRL_QSS_DEFAULT
+# define GEOCTRL_QSS_DEFAULT 20
+#endif
+
+#ifndef GEOCTRL_QSE_DEFAULT
+# define GEOCTRL_QSE_DEFAULT 25
+#endif
+
+#ifndef GEOCTRL_QDS_DEFAULT
+# define GEOCTRL_QDS_DEFAULT 30
+#endif
+
+#ifndef GEOCTRL_QDE_DEFAULT
+# define GEOCTRL_QDE_DEFAULT 35
+#endif
+
+#ifndef GEOCTRL_QLS_DEFAULT
+# define GEOCTRL_QLS_DEFAULT 40
+#endif
+
+#ifndef GEOCTRL_QLE_DEFAULT
+# define GEOCTRL_QLE_DEFAULT 40.5
+#endif
+
+
+
+
+
 #ifndef REAL_OR_SITL
 # define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
 #endif

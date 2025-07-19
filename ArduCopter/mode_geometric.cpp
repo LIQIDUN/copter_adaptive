@@ -79,6 +79,23 @@ void ModeGeometric::run()
     static float take_off_time = g.GeoCtrl_TFT; // 输入起飞时间
     uint32_t now_time_in_geometric = AP_HAL::micros();
 
+    static float vb_time_start = 0;
+    static float vb_time_end = 0;
+    static float vs_time_start = 0;
+    static float vs_time_end = 0;
+    static float vd_time_start = 0;
+    static float vd_time_end = 0;
+    static float vl_time_start = 0;
+    static float vl_time_end = 0;
+    static float qb_time_start = 0;
+    static float qb_time_end = 0;
+    static float qs_time_start = 0;
+    static float qs_time_end = 0;
+    static float qd_time_start = 0;
+    static float qd_time_end = 0;
+    static float ql_time_start = 0;
+    static float ql_time_end = 0;
+
     if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
     { // 第一次或者再次进入geo模式，也就是新的一次geo飞行
         // 相当自己写了一个初始化
@@ -90,6 +107,23 @@ void ModeGeometric::run()
         trajectory_num = g.GeoCtrl_NUM;
         kg_vehicleMass = g.GeoCtrl_MAS;
         gcs().send_text(MAV_SEVERITY_INFO, "Init of Trajectory");
+
+        vb_time_start = g.GeoCtrl_VBS;
+        vb_time_end = g.GeoCtrl_VBE;
+        vs_time_start = g.GeoCtrl_VSS;
+        vs_time_end = g.GeoCtrl_VSE;
+        vd_time_start = g.GeoCtrl_VDS;
+        vd_time_end = g.GeoCtrl_VDE;
+        vl_time_start = g.GeoCtrl_VLS;
+        vl_time_end = g.GeoCtrl_VLE;
+        qb_time_start = g.GeoCtrl_QBS;
+        qb_time_end = g.GeoCtrl_QBE;
+        qs_time_start = g.GeoCtrl_QSS;
+        qs_time_end = g.GeoCtrl_QSE;
+        qd_time_start = g.GeoCtrl_QDS;
+        qd_time_end = g.GeoCtrl_QDE;
+        ql_time_start = g.GeoCtrl_QLS;
+        ql_time_end = g.GeoCtrl_QLE;
     }
 
     float timeInThisRun = (float)0.000001f * (now_time_in_geometric - initial_time_in_geometric);
@@ -188,7 +222,15 @@ void ModeGeometric::run()
     if (g.GeoCtrl_ADP == 0)
     {
         // 关闭自适应
-        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
+        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun,
+                                                                          vb_time_start, vb_time_end,
+                                                                          vs_time_start, vs_time_end,
+                                                                          vd_time_start, vd_time_end,
+                                                                          vl_time_start, vl_time_end,
+                                                                          qb_time_start, qb_time_end,
+                                                                          qs_time_start, qs_time_end,
+                                                                          qd_time_start, qd_time_end,
+                                                                          ql_time_start, ql_time_end);
     }
     else if (g.GeoCtrl_ADP == 1)
     {
@@ -220,7 +262,15 @@ void ModeGeometric::run()
     else if (g.GeoCtrl_ADP == 2)
     {
         // 关闭自适应，但是还有扰动
-        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
+        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun,
+                                                                          vb_time_start, vb_time_end,
+                                                                          vs_time_start, vs_time_end,
+                                                                          vd_time_start, vd_time_end,
+                                                                          vl_time_start, vl_time_end,
+                                                                          qb_time_start, qb_time_end,
+                                                                          qs_time_start, qs_time_end,
+                                                                          qd_time_start, qd_time_end,
+                                                                          ql_time_start, ql_time_end);
 
         if (is_in_horizon_flight(timeInThisRun))
         {
@@ -400,7 +450,24 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     Vector3f targetSnap,
     Vector2f targetYaw,
     Vector2f targetYaw_dot,
-    Vector2f targetYaw_ddot)
+    Vector2f targetYaw_ddot,
+    float timeInThisRun,
+    float param_vb_time_start,
+    float param_vb_time_end,
+    float param_vs_time_start,
+    float param_vs_time_end,
+    float param_vd_time_start,
+    float param_vd_time_end,
+    float param_vl_time_start,
+    float param_vl_time_end,
+    float param_qb_time_start,
+    float param_qb_time_end,
+    float param_qs_time_start,
+    float param_qs_time_end,
+    float param_qd_time_start,
+    float param_qd_time_end,
+    float param_ql_time_start,
+    float param_ql_time_end)
 {
     Vector3f r_error;
     Vector3f v_error;
@@ -447,6 +514,46 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
 
     // Position Error (ep)
     r_error = statePos - targetPos;
+
+    static float v_lock;
+    static int v_lock_flag = 0;
+    const float vb_time_start = param_vb_time_start;
+    const float vb_time_end = param_vb_time_end;
+    const float vs_time_start = param_vs_time_start;
+    const float vs_time_end = param_vs_time_end;
+    const float vd_time_start = param_vd_time_start;
+    const float vd_time_end = param_vd_time_end;
+    const float vl_time_start = param_vl_time_start;
+    const float vl_time_end = param_vl_time_end;
+    int8_t vb_flag = 0;
+    int8_t vs_flag = 0;
+    int8_t vd_flag = 0;
+    int8_t vl_flag = 0;
+    if (timeInThisRun > vb_time_start && timeInThisRun < vb_time_end)
+    {
+        stateVel.y += 1;
+        vb_flag = 1;
+    }
+    if (timeInThisRun > vs_time_start && timeInThisRun < vs_time_end)
+    {
+        stateVel.y = (1.0 / 2) * stateVel.y;
+        vs_flag = 1;
+    }
+    if (timeInThisRun > vd_time_start && timeInThisRun < vd_time_end)
+    {
+        stateVel.y += 0.2 * (timeInThisRun - vd_time_start);
+        vd_flag = 1;
+    }
+    if (timeInThisRun > vl_time_start && timeInThisRun < vl_time_end)
+    {
+        if (v_lock_flag == 0)
+        {
+            v_lock = stateVel.y;
+            v_lock_flag = 1;
+        }
+        stateVel.y = v_lock;
+        vl_flag = 1;
+    }
 
     // Velocity Error (ev)
     v_error = stateVel - targetVel;
@@ -537,6 +644,46 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     eR = veeOperator(eRM);
 
     Vector3f Omega = AP::ahrs().get_gyro();
+
+    static float q_lock;
+    static int q_lock_flag = 0;
+    const float qb_time_start = param_qb_time_start;
+    const float qb_time_end = param_qb_time_end;
+    const float qs_time_start = param_qs_time_start;
+    const float qs_time_end = param_qs_time_end;
+    const float qd_time_start = param_qd_time_start;
+    const float qd_time_end = param_qd_time_end;
+    const float ql_time_start = param_ql_time_start;
+    const float ql_time_end = param_ql_time_end;
+    int8_t qb_flag = 0;
+    int8_t qs_flag = 0;
+    int8_t qd_flag = 0;
+    int8_t ql_flag = 0;
+    if (timeInThisRun > qb_time_start && timeInThisRun < qb_time_end)
+    {
+        Omega.y += 1;
+        qb_flag = 1;
+    }
+    if (timeInThisRun > qs_time_start && timeInThisRun < qs_time_end)
+    {
+        Omega.y = (1.0 / 2) * Omega.y;
+        qs_flag = 1;
+    }
+    if (timeInThisRun > qd_time_start && timeInThisRun < qd_time_end)
+    {
+        Omega.y += 0.2 * (timeInThisRun - qd_time_start);
+        qd_flag = 1;
+    }
+    if (timeInThisRun > ql_time_start && timeInThisRun < ql_time_end)
+    {
+        if (q_lock_flag == 0)
+        {
+            q_lock = Omega.y;
+            q_lock_flag = 1;
+        }
+        Omega.y = q_lock;
+        ql_flag = 1;
+    }
 
     // compute Omegad: this comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
     Vector3f a_error; // error on acceleration
@@ -638,6 +785,25 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     thrustMomentCmd[3] = M.z;
 
     // logging
+    AP::logger().Write("FTFG", "TimeUS,vb,vs,vd,vl,qb,qs,qd,ql", "Qbbbbbbbb",
+                       AP_HAL::micros64(),
+                       (vb_flag),
+                       (vs_flag),
+                       (vd_flag),
+                       (vl_flag),
+                       (qb_flag),
+                       (qs_flag),
+                       (qd_flag),
+                       (ql_flag));
+    AP::logger().Write("OMGE", "TimeUS,p,q,r,mp,mq,mr", "Qffffff",
+                       AP_HAL::micros64(),
+                       (Omega.x),
+                       (Omega.y),
+                       (Omega.z),
+                       (M.x),
+                       (M.y),
+                       (M.z));
+
     AP::logger().Write("GEOM", "TimeUS,exx,exy,exz,evx,evy,evz,erx,ery,erz,ewx,ewy,ewz", "Qffffffffffff",
                        AP_HAL::micros64(),
                        (r_error.x),
@@ -661,14 +827,17 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (M.x),
                        (M.y),
                        (M.z));
-    AP::logger().Write("GETA", "TimeUS,tpx,tpy,tpz,spx,spy,spz", "Qffffff",
+    AP::logger().Write("GETA", "TimeUS,tpx,tpy,tpz,spx,spy,spz,svx,svy,syz", "Qfffffffff",
                        AP_HAL::micros64(),
                        (targetPos.x),
                        (targetPos.y),
                        (targetPos.z),
                        (statePos.x),
                        (statePos.y),
-                       (statePos.z));
+                       (statePos.z),
+                       (stateVel.x),
+                       (stateVel.y),
+                       (stateVel.z));
     // log the desired rotation matrix and the actual rotation matrix
     AP::logger().Write("L1AF", "TimeUS,Rd11,Rd12,Rd13,Rd21,Rd22,Rd23,Rd31,Rd32,Rd33", "Qfffffffff",
                        AP_HAL::micros64(),

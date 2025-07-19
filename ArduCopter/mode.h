@@ -1606,9 +1606,9 @@ public:
     bool land_is_ok_flag = false;
     const float sin_time_T = 4;
 
-    bool in_horizon_flight =false;
-    bool in_trj_flight =false;
-    
+    bool in_horizon_flight = false;
+    bool in_trj_flight = false;
+
     bool is_in_horizon_flight(float flight_time);
 #if (!REAL_OR_SITL) // SITL
     // // quad X default parameters
@@ -1644,7 +1644,24 @@ private:
         Vector3f targetSnap,
         Vector2f targetYaw,
         Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot); // controller for trajectory control
+        Vector2f targetYaw_ddot,
+        float timeInThisRun,
+        float param_vb_time_start,
+        float param_vb_time_end,
+        float param_vs_time_start,
+        float param_vs_time_end,
+        float param_vd_time_start,
+        float param_vd_time_end,
+        float param_vl_time_start,
+        float param_vl_time_end,
+        float param_qb_time_start,
+        float param_qb_time_end,
+        float param_qs_time_start,
+        float param_qs_time_end,
+        float param_qd_time_start,
+        float param_qd_time_end,
+        float param_ql_time_start,
+        float param_ql_time_end); // controller for trajectory control
     VectorN<float, 4> AdaptiveController(
         Vector3f targetPos,
         Vector3f targetVel,
