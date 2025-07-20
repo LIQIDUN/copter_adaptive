@@ -418,12 +418,29 @@
 # define GEOCTRL_QLE_DEFAULT 40.5
 #endif
 
+#ifndef GEOCTRL_VBP_DEFAULT
+# define GEOCTRL_VBP_DEFAULT 1
+#endif
 
+#ifndef GEOCTRL_VSP_DEFAULT
+# define GEOCTRL_VSP_DEFAULT 0.5
+#endif
 
+#ifndef GEOCTRL_QBP_DEFAULT
+# define GEOCTRL_QBP_DEFAULT 1
+#endif
+
+#ifndef GEOCTRL_QSP_DEFAULT
+# define GEOCTRL_QSP_DEFAULT 0.5
+#endif
+
+#ifndef GEOCTRL_CRN_DEFAULT
+# define GEOCTRL_CRN_DEFAULT 1
+#endif
 
 
 #ifndef REAL_OR_SITL
-# define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
+# define REAL_OR_SITL 1 // 0 for SITL and 1 for REAL
 #endif
 
 #if !REAL_OR_SITL

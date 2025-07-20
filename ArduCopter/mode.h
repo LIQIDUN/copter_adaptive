@@ -1661,7 +1661,11 @@ private:
         float param_qd_time_start,
         float param_qd_time_end,
         float param_ql_time_start,
-        float param_ql_time_end); // controller for trajectory control
+        float param_ql_time_end,
+        float param_vbp,
+        float param_vsp,
+        float param_qbp,
+        float param_qsp); // controller for trajectory control
     VectorN<float, 4> AdaptiveController(
         Vector3f targetPos,
         Vector3f targetVel,

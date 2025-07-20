@@ -96,6 +96,11 @@ void ModeGeometric::run()
     static float ql_time_start = 0;
     static float ql_time_end = 0;
 
+    static float vbp = 0;
+    static float vsp = 0;
+    static float qbp = 0;
+    static float qsp = 0;
+
     if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
     { // 第一次或者再次进入geo模式，也就是新的一次geo飞行
         // 相当自己写了一个初始化
@@ -124,6 +129,10 @@ void ModeGeometric::run()
         qd_time_end = g.GeoCtrl_QDE;
         ql_time_start = g.GeoCtrl_QLS;
         ql_time_end = g.GeoCtrl_QLE;
+        vbp = g.GeoCtrl_VBP;
+        vsp = g.GeoCtrl_VSP;
+        qbp = g.GeoCtrl_QBP;
+        qsp = g.GeoCtrl_QSP;
     }
 
     float timeInThisRun = (float)0.000001f * (now_time_in_geometric - initial_time_in_geometric);
@@ -194,6 +203,29 @@ void ModeGeometric::run()
         Trajectory_Generate_LSR_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
     }
     break;
+    case 5:
+    {
+        float r_circle = g.GeoCtrl_RDI;
+        float T_circle = g.GeoCtrl_TIM;
+        int8_t circle_num = g.GeoCtrl_CRN;
+        const float targetAlt = 2;
+        in_horizon_flight = false;
+        in_trj_flight = false;
+        Trajectory_Generate_CIRCLE_LONG_TIME_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, circle_num, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    }
+    break;
+
+    case 6:
+    {
+        float r_circle = g.GeoCtrl_RDI;
+        float T_circle = g.GeoCtrl_TIM;
+        int8_t circle_num = g.GeoCtrl_CRN;
+        const float targetAlt = 2;
+        in_horizon_flight = false;
+        in_trj_flight = false;
+        Trajectory_Generate_LSR_LONG_TIME_AUTO(timeInThisRun, targetAlt, take_off_time, r_circle, T_circle, &in_horizon_flight, &in_trj_flight, circle_num, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+    }
+    break;
 
     default:
         Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
@@ -230,7 +262,9 @@ void ModeGeometric::run()
                                                                           qb_time_start, qb_time_end,
                                                                           qs_time_start, qs_time_end,
                                                                           qd_time_start, qd_time_end,
-                                                                          ql_time_start, ql_time_end);
+                                                                          ql_time_start, ql_time_end,
+                                                                          vbp, vsp,
+                                                                          qbp, qsp);
     }
     else if (g.GeoCtrl_ADP == 1)
     {
@@ -262,15 +296,15 @@ void ModeGeometric::run()
     else if (g.GeoCtrl_ADP == 2)
     {
         // 关闭自适应，但是还有扰动
-        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun,
-                                                                          vb_time_start, vb_time_end,
-                                                                          vs_time_start, vs_time_end,
-                                                                          vd_time_start, vd_time_end,
-                                                                          vl_time_start, vl_time_end,
-                                                                          qb_time_start, qb_time_end,
-                                                                          qs_time_start, qs_time_end,
-                                                                          qd_time_start, qd_time_end,
-                                                                          ql_time_start, ql_time_end);
+        // thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun,
+        //                                                                   vb_time_start, vb_time_end,
+        //                                                                   vs_time_start, vs_time_end,
+        //                                                                   vd_time_start, vd_time_end,
+        //                                                                   vl_time_start, vl_time_end,
+        //                                                                   qb_time_start, qb_time_end,
+        //                                                                   qs_time_start, qs_time_end,
+        //                                                                   qd_time_start, qd_time_end,
+        //                                                                   ql_time_start, ql_time_end);
 
         if (is_in_horizon_flight(timeInThisRun))
         {
@@ -467,7 +501,11 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     float param_qd_time_start,
     float param_qd_time_end,
     float param_ql_time_start,
-    float param_ql_time_end)
+    float param_ql_time_end,
+    float param_vbp,
+    float param_vsp,
+    float param_qbp,
+    float param_qsp)
 {
     Vector3f r_error;
     Vector3f v_error;
@@ -525,23 +563,25 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     const float vd_time_end = param_vd_time_end;
     const float vl_time_start = param_vl_time_start;
     const float vl_time_end = param_vl_time_end;
+    const float vbp = param_vbp;
+    const float vsp = param_vsp;
     int8_t vb_flag = 0;
     int8_t vs_flag = 0;
     int8_t vd_flag = 0;
     int8_t vl_flag = 0;
     if (timeInThisRun > vb_time_start && timeInThisRun < vb_time_end)
     {
-        stateVel.y += 1;
+        stateVel.y += vbp;
         vb_flag = 1;
     }
     if (timeInThisRun > vs_time_start && timeInThisRun < vs_time_end)
     {
-        stateVel.y = (1.0 / 2) * stateVel.y;
+        stateVel.y = stateVel.y * vsp;
         vs_flag = 1;
     }
     if (timeInThisRun > vd_time_start && timeInThisRun < vd_time_end)
     {
-        stateVel.y += 0.2 * (timeInThisRun - vd_time_start);
+        stateVel.y += 0.2 * (timeInThisRun - vd_time_start) * vbp;
         vd_flag = 1;
     }
     if (timeInThisRun > vl_time_start && timeInThisRun < vl_time_end)
@@ -655,23 +695,26 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     const float qd_time_end = param_qd_time_end;
     const float ql_time_start = param_ql_time_start;
     const float ql_time_end = param_ql_time_end;
+    const float qbp = param_qbp;
+    const float qsp = param_qsp;
+
     int8_t qb_flag = 0;
     int8_t qs_flag = 0;
     int8_t qd_flag = 0;
     int8_t ql_flag = 0;
     if (timeInThisRun > qb_time_start && timeInThisRun < qb_time_end)
     {
-        Omega.y += 1;
+        Omega.y += qbp;
         qb_flag = 1;
     }
     if (timeInThisRun > qs_time_start && timeInThisRun < qs_time_end)
     {
-        Omega.y = (1.0 / 2) * Omega.y;
+        Omega.y = Omega.y * qsp;
         qs_flag = 1;
     }
     if (timeInThisRun > qd_time_start && timeInThisRun < qd_time_end)
     {
-        Omega.y += 0.2 * (timeInThisRun - qd_time_start);
+        Omega.y += 0.2 * (timeInThisRun - qd_time_start) * qbp;
         qd_flag = 1;
     }
     if (timeInThisRun > ql_time_start && timeInThisRun < ql_time_end)

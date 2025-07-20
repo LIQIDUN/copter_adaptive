@@ -438,6 +438,11 @@ public:
         k_param_GeoCtrl_QDE = 309,
         k_param_GeoCtrl_QLS = 310,
         k_param_GeoCtrl_QLE = 311,
+        k_param_GeoCtrl_VBP = 312,
+        k_param_GeoCtrl_VSP = 313,
+        k_param_GeoCtrl_QBP = 314,
+        k_param_GeoCtrl_QSP = 315,
+        k_param_GeoCtrl_CRN = 316,
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
@@ -563,6 +568,11 @@ public:
     AP_Float GeoCtrl_QDE; 
     AP_Float GeoCtrl_QLS; 
     AP_Float GeoCtrl_QLE; 
+    AP_Float GeoCtrl_VBP;
+    AP_Float GeoCtrl_VSP;
+    AP_Float GeoCtrl_QBP;
+    AP_Float GeoCtrl_QSP;
+    AP_Int8 GeoCtrl_CRN;
  
 
 #if MODE_THROW_ENABLED == ENABLED
