@@ -1,11 +1,6 @@
 #include <AP_Math/AP_Math.h>
-#include <AP_Math/matrixN.h>
-#include <AP_Math/ftype.h>
-#include <AP_NavEKF3/AP_NavEKF3.h>
-#include <AP_AHRS/AP_AHRS.h>
-#include <AP_HAL/AP_HAL.h>
-#include "Copter.h"
-#include "mode.h"
+#include <GCS_MAVLink/GCS.h>
+
 
 void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
                                              float targetAlt,

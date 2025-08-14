@@ -31,6 +31,10 @@ def build(bld):
             'AP_OSD',
             'AC_AutoTune',
             'AP_KDECAN',
+            'AP_TrjGenerate',
+            'AC_GeometricController',
+            'AP_Operator',
+            'AP_GeoMotor',
         ],
     )
 

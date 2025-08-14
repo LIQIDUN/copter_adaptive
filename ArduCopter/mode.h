@@ -1588,11 +1588,10 @@ public:
     using Mode::Mode;
     Number mode_number() const override { return Number::GEOMETRIC; }
 
-    // bool init(bool ignore_checks) override;
+    bool init(bool ignore_checks) override;
     virtual void run() override;
 
     bool requires_GPS() const override { return false; }
-    // bool has_manual_throttle() const override { return true; }
     bool has_manual_throttle() const override { return false; }
     bool allows_arming(AP_Arming::Method method) const override { return true; };
     bool is_autopilot() const override { return false; }
@@ -1600,34 +1599,38 @@ public:
     bool allows_autotune() const override { return true; }
     bool allows_flip() const override { return true; }
 
-    const float GRAVITY_MAGNITUDE = 9.8; // gravitational acceleration
+    const float GRAVITY_MAGNITUDE = 9.81; // gravitational acceleration
     void GEO_land_detect(float initalt);
 
     bool land_is_ok_flag = false;
-    const float sin_time_T = 4;
 
-    bool in_horizon_flight =false;
-    bool in_trj_flight =false;
-    
+    bool in_horizon_flight = false;
+    bool in_trj_flight = false;
+
     bool is_in_horizon_flight(float flight_time);
+
+    GeoInput ControllerIn;
+    DisturbanceInput DBInput;
+
+    uint32_t initial_time_in_geometric;
+    uint32_t last_time_in_geometric;
+    Vector3f enterpos; // 进入跟踪模式的位置
+    int8_t getposAvailable;
+    int8_t trajectory_num;
+    int8_t info_send_flag;
+    int8_t rc_lost_info_flag;
+    float init_alt;      // NED D alt 起飞点高度
+    float take_off_time; // 输入起飞时间
+
 #if (!REAL_OR_SITL) // SITL
     // // quad X default parameters
-    // float kg_vehicleMass = 3; // SITL drone mass.
-    float kg_vehicleMass;
-    const Matrix3f J = {0.023, 0, 0, 0, 0.023, 0, 0, 0, 0.0459};      // This is pulled from SIM_Motor.cpp
-    const Matrix3f Jinv = {43.478, 0, 0, 0, 43.478, 0, 0, 0, 21.786}; // hand-computed
-
-    // // freestyle default parameters, using inertia of NGD odroid
-    // const float kg_vehicleMass = 0.8; // SITL drone mass.
-    // const Matrix3f J = {0.0027, 0, 0, 0, 0.0028, 0, 0, 0, 0.0037}; // This is pulled from SIM_Motor.cpp
-    // const Matrix3f Jinv = {370.37, 0, 0, 0, 357.143, 0, 0, 0, 270.27}; // hand-computed
+    float kg_vehicleMass;                                        // float kg_vehicleMass = 3;  SITL drone mass.
+    const Matrix3f J = {0.023, 0, 0, 0, 0.023, 0, 0, 0, 0.0459}; // This is pulled from SIM_Motor.cpp
+    // const Matrix3f Jinv = {43.478, 0, 0, 0, 43.478, 0, 0, 0, 21.786}; // hand-computed
 #elif (REAL_OR_SITL) // Real
-    // const float kg_vehicleMass = 0.72;   // weight for the real drone
     float kg_vehicleMass;
-    // const float kg_vehicleMass = g.GeoCtrl_MAS;   // weight for the real drone
-    // float kg_vehicleMass;   // weight for the real drone
     const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
-    // const Matrix3f Jinv = {496.03, 0, 0, 0, 547.345, 0, 0, 0, 310.559}; // hand-computed
+
 #endif
 
 protected:
@@ -1635,36 +1638,8 @@ protected:
     const char *name4() const override { return "GEOM"; }
 
 private:
-    // VectorN<float, 4> geometricAttitudeController(Matrix3f targetattitude); //simplifed controller ,only control attidude
-    VectorN<float, 4> GeometricTrajectoryController(
-        Vector3f targetPos,
-        Vector3f targetVel,
-        Vector3f targetAcc,
-        Vector3f targetJerk,
-        Vector3f targetSnap,
-        Vector2f targetYaw,
-        Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot); // controller for trajectory control
-    VectorN<float, 4> AdaptiveController(
-        Vector3f targetPos,
-        Vector3f targetVel,
-        Vector3f targetAcc,
-        Vector3f targetJerk,
-        Vector3f targetSnap,
-        Vector2f targetYaw,
-        Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot,
-        float timeinrun);
-
-    Matrix3f hatOperator(Vector3f input);
-    Vector3f veeOperator(Matrix3f input);
-    VectorN<float, 9> unit_vec(Vector3f q, Vector3f q_dot, Vector3f q_ddot);
-    VectorN<float, 4> iterativeMotorMixing(VectorN<float, 4> w_input, VectorN<float, 4> thrustMomentCmd, float a_F, float b_F, float a_M, float b_M, float L, float D);
-    VectorN<float, 16> mat4Inv(VectorN<float, 4> coefficientRow1, VectorN<float, 4> coefficientRow2, VectorN<float, 4> coefficientRow3, VectorN<float, 4> coefficientRow4);
-
-    float vector_2norm(Vector3f A);
-    VectorN<float, 4> motorMixSimple(VectorN<float, 4> thrustMomentCmd);
-
+    bool actuator_control(VectorN<float, 4> motorPWM,float timeInThisRun,bool pos_estimate_error);
+    
     // bool att_not_safe();
 };
 

@@ -1,5 +1,5 @@
 #include "Geometric_Trajectory_Generate.h"
-#include "mode.h"
+
 
 // 实现起飞到悬停在targetalt高度，时间从0开始计算，位置零点(0,0,0)测试可用
 void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
@@ -79,7 +79,10 @@ void Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(float timeInThisRun,
         *targetYaw = (Vector2f){1, 0};
         *targetYaw_dot = (Vector2f){0, 0};
         *targetYaw_ddot = (Vector2f){0, 0};
+
+        
     }
+ 
 }
 
 // 实现targetalt高度到降落0高度，时间从0开始计算，位置零点(0,0,-targAlt),测试可用
@@ -196,7 +199,7 @@ void Trajectory_Generate_POS_AUTO(float timeInThisRun,
 
     if (timeInThisRun >= 0 && timeInThisRun <= time_takeoff)
     {
-        *in_flight = 0;
+        *in_flight = 0; 
         Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
                                                 targetAlt,
                                                 time_takeoff,
@@ -208,6 +211,7 @@ void Trajectory_Generate_POS_AUTO(float timeInThisRun,
                                                 targetYaw,
                                                 targetYaw_dot,
                                                 targetYaw_ddot);
+                                               
     }
 
     else if (timeInThisRun > time_takeoff && timeInThisRun <= time_takeoff + time_in_pos)
@@ -262,6 +266,7 @@ void Trajectory_Generate_POS_AUTO(float timeInThisRun,
         *targetYaw_dot = (Vector2f){0, 0};
         *targetYaw_ddot = (Vector2f){0, 0};
     }
+   
 }
 
 // 水平加速度0.5 x+方向,时间从0开始计算，位置零点(0,0,0),仿真可用

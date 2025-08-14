@@ -72,6 +72,10 @@
 #include <AC_PrecLand/AC_PrecLand_config.h>
 #include <AP_OpticalFlow/AP_OpticalFlow.h>
 #include <AP_Winch/AP_Winch_config.h>
+#include <AP_TrjGenerate/Geometric_Trajectory_Generate.h>
+#include <AC_GeometricController/AC_GeoCtrl.h>
+#include <AP_GeoMotor/AP_GeoMotor.h>
+// #include <AC_GeometricController/AC_Disturbance.h>
 
 // Configuration
 #include "defines.h"
