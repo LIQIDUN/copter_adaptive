@@ -9,6 +9,7 @@
 #include "quadplane.h"
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Mission/AP_Mission.h>
+#include <AP_Motors/AP_Motors.h>
 
 class AC_PosControl;
 class AC_AttitudeControl_Multi;
@@ -54,6 +55,7 @@ public:
 #if HAL_QUADPLANE_ENABLED
         LOITER_ALT_QLAND = 25,
 #endif
+        VTOL          = 26,
     };
 
     // Constructor
@@ -164,6 +166,10 @@ protected:
     QuadPlane::PosControlState &poscontrol;
 #endif
     AP_AHRS& ahrs;
+    Parameters &g;
+    ParametersG2 &g2;
+    AP_InertialNav &inertial_nav;
+    AP_Motors *&motors;
 };
 
 
@@ -830,3 +836,33 @@ protected:
 };
 
 #endif
+
+
+class ModeVTOL : public Mode
+{
+public:
+
+    Number mode_number() const override { return Number::VTOL; }
+    const char *name() const override { return "VTOL"; }
+    const char *name4() const override { return "VTOL"; }
+
+    bool allows_terrain_disable() const override { return true; }
+
+    bool does_automatic_thermal_switch() const override { return true; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    bool does_auto_throttle() const override { return true; }
+    
+    bool mode_allows_autotuning() const override { return true; }
+
+    void update_target_altitude() override {};
+
+    uint32_t initial_time_in_geometric;
+    uint32_t last_time_in_geometric;
+
+protected:
+
+    bool _enter() override;
+};

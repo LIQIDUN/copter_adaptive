@@ -49,6 +49,7 @@ MAV_MODE GCS_MAVLINK_Plane::base_mode() const
 #endif
 #endif  // HAL_QUADPLANE_ENABLED
     case Mode::Number::CRUISE:
+    case Mode::Number::VTOL:
         _base_mode = MAV_MODE_FLAG_STABILIZE_ENABLED;
         break;
     case Mode::Number::AUTO:
