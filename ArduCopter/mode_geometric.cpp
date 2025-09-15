@@ -7,90 +7,89 @@
 #include "Geometric_Trajectory_Generate.h"
 #include <AP_Math/AP_Math.h>
 #include <AP_AHRS/AP_AHRS.h>
+
+#define ELEVATOR CH_5
+#define AILERON CH_6
+#define RUDDER CH_7
+// #define THROTTLE CH_8
 /*
  * Init and run calls for Geometric flight mode
  */
+bool ModeGeometric::init(bool ignore_checks)
+{
+    initial_time_in_geometric = AP_HAL::micros();
+    getposAvailable = ahrs.get_relative_position_NED_origin(enterpos);
+    init_alt = enterpos.z; // 记录起飞点高度
+
+    info_send_flag = 0;
+    trajectory_num = g.GeoCtrl_NUM;
+    kg_vehicleMass = g.GeoCtrl_MAS;
+    take_off_time = g.GeoCtrl_TFT;
+    gcs().send_text(MAV_SEVERITY_INFO, "Init of Trajectory");
+    return true;
+}
 
 // Geometric_run - runs the main Geometric controller
 // should be called at 100hz or more
 void ModeGeometric::run()
 {
 
-    if (!motors->armed())
-    {
-        // Motors should be Stopped
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
-    }
-    else if (copter.ap.throttle_zero || (copter.air_mode == AirMode::AIRMODE_ENABLED && motors->get_spool_state() == AP_Motors::SpoolState::SHUT_DOWN))
-    {
-        // throttle_zero is never true in air mode, but the motors should be allowed to go through ground idle
-        // in order to facilitate the spoolup block
+    // if (!motors->armed())
+    // {
+    //     // Motors should be Stopped
+    //     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
+    // }
+    // else if (copter.ap.throttle_zero || (copter.air_mode == AirMode::AIRMODE_ENABLED && motors->get_spool_state() == AP_Motors::SpoolState::SHUT_DOWN))
+    // {
+    //     // throttle_zero is never true in air mode, but the motors should be allowed to go through ground idle
+    //     // in order to facilitate the spoolup block
 
-        // Attempting to Land
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::GROUND_IDLE);
-    }
-    else
-    {
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-    }
+    //     // Attempting to Land
+    //     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::GROUND_IDLE);
+    // }
+    // else
+    // {
+    //     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+    // }
 
-    switch (motors->get_spool_state())
-    {
-    case AP_Motors::SpoolState::SHUT_DOWN:
-        // Motors Stopped
-        // attitude_control->reset_yaw_target_and_rate();
-        // attitude_control->reset_rate_controller_I_terms();
-        break;
+    // switch (motors->get_spool_state())
+    // {
+    // case AP_Motors::SpoolState::SHUT_DOWN:
+    //     // Motors Stopped
+    //     // attitude_control->reset_yaw_target_and_rate();
+    //     // attitude_control->reset_rate_controller_I_terms();
+    //     break;
 
-    case AP_Motors::SpoolState::GROUND_IDLE:
-        // Landed
-        // attitude_control->reset_yaw_target_and_rate();
-        // attitude_control->reset_rate_controller_I_terms_smoothly();
-        break;
+    // case AP_Motors::SpoolState::GROUND_IDLE:
+    //     // Landed
+    //     // attitude_control->reset_yaw_target_and_rate();
+    //     // attitude_control->reset_rate_controller_I_terms_smoothly();
+    //     break;
 
-    case AP_Motors::SpoolState::THROTTLE_UNLIMITED:
-        // clear landing flag above zero throttle
-        if (!motors->limit.throttle_lower)
-        {
-            set_land_complete(false);
-        }
-        break;
+    // case AP_Motors::SpoolState::THROTTLE_UNLIMITED:
+    //     // clear landing flag above zero throttle
+    //     if (!motors->limit.throttle_lower)
+    //     {
+    //         set_land_complete(false);
+    //     }
+    //     break;
 
-    case AP_Motors::SpoolState::SPOOLING_UP:
-    case AP_Motors::SpoolState::SPOOLING_DOWN:
-        // do nothing
-        break;
-    }
+    // case AP_Motors::SpoolState::SPOOLING_UP:
+    // case AP_Motors::SpoolState::SPOOLING_DOWN:
+    //     // do nothing
+    //     break;
+    // }
 
     // start of the Geometric  controller
 
     VectorN<float, 4> thrustAndMomentCmd;
 
-    /**/
-    static uint32_t initial_time_in_geometric = 0;
-    static uint32_t last_time_in_geometric = 0;
-    static Vector3f enterpos;    // 进入跟踪模式的位置
-    static Vector3f TRJstartpos; // 完成初始加速，开始跟踪的位置
-    static int8_t getposAvailable = 0;
-    static int8_t trajectory_num = 0;
-    static int8_t info_send_flag = 0;
-    static int8_t rc_lost_info_flag = 0;
-    static float init_alt = 0;                  // NED D alt 起飞点高度
-    static float take_off_time = g.GeoCtrl_TFT; // 输入起飞时间
     uint32_t now_time_in_geometric = AP_HAL::micros();
 
-    if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
-    { // 第一次或者再次进入geo模式，也就是新的一次geo飞行
-        // 相当自己写了一个初始化
-        initial_time_in_geometric = AP_HAL::micros();
-        getposAvailable = ahrs.get_relative_position_NED_origin(enterpos);
-        init_alt = enterpos.z; // 记录起飞点高度
-
-        info_send_flag = 0;
-        trajectory_num = g.GeoCtrl_NUM;
-        kg_vehicleMass = g.GeoCtrl_MAS;
-        gcs().send_text(MAV_SEVERITY_INFO, "Init of Trajectory");
-    }
+    // if (initial_time_in_geometric == 0 || 0.000001f * (now_time_in_geometric - last_time_in_geometric) > 0.1)
+    // { // 第一次或者再次进入geo模式，也就是新的一次geo飞行
+    //   // 相当自己写了一个初始化
+    // }
 
     float timeInThisRun = (float)0.000001f * (now_time_in_geometric - initial_time_in_geometric);
 
@@ -174,16 +173,49 @@ void ModeGeometric::run()
     }
 
     // 尝试取消ap自带控制器的影响，实际上没有效果
-    motors->set_pitch(0);
-    motors->set_pitch_ff(0);
-    motors->set_roll(0);
-    motors->set_roll_ff(0);
-    motors->set_yaw(0);
-    motors->set_yaw_ff(0);
+    // motors->set_pitch(0);
+    // motors->set_pitch_ff(0);
+    // motors->set_roll(0);
+    // motors->set_roll_ff(0);
+    // motors->set_yaw(0);
+    // motors->set_yaw_ff(0);
 
-    /**/
+    uint8_t rc_ch1 = rc().channel(CH_1)->percent_input(); // 0-100
+    uint8_t rc_ch2 = rc().channel(CH_2)->percent_input();
+    uint8_t rc_ch3 = rc().channel(CH_3)->percent_input();
+    uint8_t rc_ch4 = rc().channel(CH_4)->percent_input();
+    uint8_t rc_vtol_switch = rc().channel(CH_8)->percent_input();
 
-    // end
+    if (rc_vtol_switch < 40) // 固定翼直驱
+    {
+        motors->rc_write(ELEVATOR, rc_ch1 * 10 + 1000);
+        motors->rc_write(AILERON, rc_ch2 * 10 + 1000);
+        motors->rc_write(RUDDER, rc_ch3 * 10 + 1000);
+        motors->rc_write(0, rc_ch4 * 10 + 1000);
+        motors->rc_write(1, rc_ch4 * 10 + 1000);
+        motors->rc_write(2, rc_ch4 * 10 + 1000);
+        motors->rc_write(3, rc_ch4 * 10 + 1000);
+        return;
+    }
+    else if (rc_vtol_switch < 60) // 固定翼飞控 VTOL
+    {
+        float FW_target_pitch = (rc_ch1 - 50) * 0.9;
+        float FW_target_roll = (rc_ch2 - 50) * 0.9;
+        float FW_target_yaw_rate = (rc_ch3 - 50) * 0.9;
+        VectorN<float, 3> FW_out = FixWingController(FW_target_pitch, FW_target_roll, FW_target_yaw_rate);
+
+        motors->rc_write(ELEVATOR, FW_out[0]);
+        motors->rc_write(AILERON, FW_out[1]);
+        motors->rc_write(RUDDER, FW_out[2]);
+        motors->rc_write(0, rc_ch4 * 10 + 1000);
+        motors->rc_write(1, rc_ch4 * 10 + 1000);
+        motors->rc_write(2, rc_ch4 * 10 + 1000);
+        motors->rc_write(3, rc_ch4 * 10 + 1000);
+        return;
+    }
+    else
+    {
+    }
 
     if (g.GeoCtrl_ADP == 0)
     {
@@ -337,13 +369,10 @@ void ModeGeometric::run()
         motorEnable = 0;
         motors->set_interlock(false); // 不转
     }
-
-    // logging
-    AP::logger().Write("FSAF", "TimeUS,radi,rece,mabl", "Qbbb",
-                       AP_HAL::micros64(),
-                       copter.failsafe.radio,
-                       copter.ap.rc_receiver_present,
-                       motorEnable);
+    if (position_estimate_available_flag == 0)
+    {
+        motorEnable = 0;
+    }
 
     if (motors->armed() && motorEnable == 1) // only command the motor PWM when the vehicle is armed.
     {
@@ -366,12 +395,25 @@ void ModeGeometric::run()
         }
 
         motorEnable = 0; // if the vehicle is not armed, disable the flight.
-        motors->rc_write(0, motorEnable * 1000);
-        motors->rc_write(1, motorEnable * 1000);
-        motors->rc_write(2, motorEnable * 1000);
-        motors->rc_write(3, motorEnable * 1000);
+        motors->rc_write(0, 1000);
+        motors->rc_write(1, 1000);
+        motors->rc_write(2, 1000);
+        motors->rc_write(3, 1000);
     }
+
+    // servos
+
+    motors->rc_write(4, 1145);
+    motors->rc_write(5, 1144);
+    motors->rc_write(6, 1167);
+    motors->rc_write(7, 1445);
+
     // logging
+    AP::logger().Write("FSAF", "TimeUS,radi,rece,mabl", "Qbbb",
+                       AP_HAL::micros64(),
+                       copter.failsafe.radio,
+                       copter.ap.rc_receiver_present,
+                       motorEnable);
     AP::logger().Write("MOUT", "TimeUS,m1,m2,m3,m4,able", "Qffffb",
                        AP_HAL::micros64(),
                        motorPWM[0],
@@ -418,16 +460,17 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     Vector2f positionNE;
 
     // 尝试取消ap自带控制器的影响，实际上没有效果
-    motors->set_pitch(0);
-    motors->set_pitch_ff(0);
-    motors->set_roll(0);
-    motors->set_roll_ff(0);
-    motors->set_yaw(0);
-    motors->set_yaw_ff(0);
+    // motors->set_pitch(0);
+    // motors->set_pitch_ff(0);
+    // motors->set_roll(0);
+    // motors->set_roll_ff(0);
+    // motors->set_yaw(0);
+    // motors->set_yaw_ff(0);
 
     int locAvailable = ahrs.get_relative_position_NED_origin(statePos);
     if (!locAvailable)
     {
+        position_estimate_available_flag = 0;
         gcs().send_text(MAV_SEVERITY_CRITICAL, "location unavailable.");
     }
 
@@ -442,6 +485,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     }
     else
     {
+        position_estimate_available_flag = 0;
         gcs().send_text(MAV_SEVERITY_CRITICAL, "inertial navigation is inactive");
     }
 
@@ -469,12 +513,8 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     Vector3f euler;
     if (!ahrs.get_secondary_attitude(euler))
     {
-        VectorN<float, 4> no_out_put;
-        no_out_put[0] = 0;
-        no_out_put[1] = 0;
-        no_out_put[2] = 0;
-        no_out_put[3] = 0;
-        return no_out_put;
+        position_estimate_available_flag = 0;
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "secondary attitude unavailable.");
     }
     float roll_rad = euler.x;
     float pitch_rad = euler.y;
@@ -721,12 +761,12 @@ VectorN<float, 4> ModeGeometric::AdaptiveController(Vector3f targetPos,
     Vector2f positionNE;
 
     // 尝试取消ap自带控制器的影响，实际上没有效果
-    motors->set_pitch(0);
-    motors->set_pitch_ff(0);
-    motors->set_roll(0);
-    motors->set_roll_ff(0);
-    motors->set_yaw(0);
-    motors->set_yaw_ff(0);
+    // motors->set_pitch(0);
+    // motors->set_pitch_ff(0);
+    // motors->set_roll(0);
+    // motors->set_roll_ff(0);
+    // motors->set_yaw(0);
+    // motors->set_yaw_ff(0);
 
     static uint32_t now_time = 0;
     static uint32_t last_time = 0;
@@ -1402,4 +1442,50 @@ bool ModeGeometric::is_in_horizon_flight(float flight_time)
     {
         return false;
     }
+}
+
+VectorN<float, 3> ModeGeometric::FixWingController(
+    float FW_target_pitch,
+    float FW_target_roll,
+    float FW_target_yaw_rate)
+{
+    VectorN<float, 3> FW_out;
+    // Implement the control logic here
+    Vector3f euler;
+    if (!ahrs.get_secondary_attitude(euler))
+    {
+    }
+    Vector3f Omega = AP::ahrs().get_gyro();
+
+    float roll_rad = euler.x;
+    float pitch_rad = euler.y;
+    float yaw_rad_rate = Omega.z;
+    
+
+    float err_pitch = pitch_rad * 180 / M_PI - FW_target_pitch;
+    float err_roll = roll_rad * 180 / M_PI - FW_target_roll;
+    float err_yaw = yaw_rad_rate * 180 / M_PI - FW_target_yaw_rate;
+
+    // Implement the control logic here
+    // For example, you could use a PID controller for each axis
+    FW_out[0] = PID_Controller(err_pitch, g.GeoFW_KPY, g.GeoFW_KIY, g.GeoFW_KDY);
+    FW_out[1] = PID_Controller(err_roll, g.GeoFW_KPX, g.GeoFW_KIX, g.GeoFW_KDX);
+    FW_out[2] = PID_Controller(err_yaw, g.GeoFW_KPZ, g.GeoFW_KIZ, g.GeoFW_KDZ);
+
+    return FW_out;
+}
+
+float ModeGeometric::PID_Controller(float error, float kp, float ki, float kd)
+{
+    static float integral = 0;
+    static float previous_error = 0;
+    const float dt = 0.0025;
+    integral += error * dt;
+    float derivative = (error - previous_error) / dt;
+
+    float output = kp * error + ki * integral + kd * derivative;
+
+    previous_error = error;
+
+    return output;
 }

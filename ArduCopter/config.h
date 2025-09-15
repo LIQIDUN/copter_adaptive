@@ -354,6 +354,42 @@
 # define GEOCTRL_DBV_DEFAULT 0
 #endif
 
+#ifndef GEOFW_KPX_DEFAULT
+# define GEOFW_KPX_DEFAULT 0.5f
+#endif
+
+#ifndef GEOFW_KPY_DEFAULT
+# define GEOFW_KPY_DEFAULT 0.5f
+#endif
+
+#ifndef GEOFW_KPZ_DEFAULT
+# define GEOFW_KPZ_DEFAULT 0.5f
+#endif
+
+#ifndef GEOFW_KIX_DEFAULT
+# define GEOFW_KIX_DEFAULT 0.0f
+#endif
+
+#ifndef GEOFW_KIY_DEFAULT
+# define GEOFW_KIY_DEFAULT 0.0f
+#endif
+
+#ifndef GEOFW_KIZ_DEFAULT
+# define GEOFW_KIZ_DEFAULT 0.0f
+#endif
+
+#ifndef GEOFW_KDX_DEFAULT
+# define GEOFW_KDX_DEFAULT 0.0f
+#endif
+
+#ifndef GEOFW_KDY_DEFAULT
+# define GEOFW_KDY_DEFAULT 0.0f
+#endif
+
+#ifndef GEOFW_KDZ_DEFAULT
+# define GEOFW_KDZ_DEFAULT 0.0f
+#endif
+
 #ifndef REAL_OR_SITL
 # define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
 #endif
@@ -409,143 +445,143 @@
 // #endif
 
 // default ACRL controller parameters (SITL freestyle)
-#ifndef GEOCTRL_KPX_DEFAULT
- #define GEOCTRL_KPX_DEFAULT          14.0f
-#endif
+// #ifndef GEOCTRL_KPX_DEFAULT
+//  #define GEOCTRL_KPX_DEFAULT          14.0f
+// #endif
 
-#ifndef GEOCTRL_KPY_DEFAULT
- #define GEOCTRL_KPY_DEFAULT          15.0f
-#endif
+// #ifndef GEOCTRL_KPY_DEFAULT
+//  #define GEOCTRL_KPY_DEFAULT          15.0f
+// #endif
 
-#ifndef GEOCTRL_KPZ_DEFAULT
- #define GEOCTRL_KPZ_DEFAULT          20.0f
-#endif
+// #ifndef GEOCTRL_KPZ_DEFAULT
+//  #define GEOCTRL_KPZ_DEFAULT          20.0f
+// #endif
 
-#ifndef GEOCTRL_KVX_DEFAULT
- #define GEOCTRL_KVX_DEFAULT          1.5f
-#endif
+// #ifndef GEOCTRL_KVX_DEFAULT
+//  #define GEOCTRL_KVX_DEFAULT          1.5f
+// #endif
 
-#ifndef GEOCTRL_KVY_DEFAULT
- #define GEOCTRL_KVY_DEFAULT          0.9f
-#endif
+// #ifndef GEOCTRL_KVY_DEFAULT
+//  #define GEOCTRL_KVY_DEFAULT          0.9f
+// #endif
 
-#ifndef GEOCTRL_KVZ_DEFAULT
- #define GEOCTRL_KVZ_DEFAULT          3.0f
-#endif
+// #ifndef GEOCTRL_KVZ_DEFAULT
+//  #define GEOCTRL_KVZ_DEFAULT          3.0f
+// #endif
 
-#ifndef GEOCTRL_KRX_DEFAULT
- #define GEOCTRL_KRX_DEFAULT          0.45f
-#endif
+// #ifndef GEOCTRL_KRX_DEFAULT
+//  #define GEOCTRL_KRX_DEFAULT          0.45f
+// #endif
 
-#ifndef GEOCTRL_KRY_DEFAULT
- #define GEOCTRL_KRY_DEFAULT          0.25f
-#endif
+// #ifndef GEOCTRL_KRY_DEFAULT
+//  #define GEOCTRL_KRY_DEFAULT          0.25f
+// #endif
 
-#ifndef GEOCTRL_KRZ_DEFAULT
- #define GEOCTRL_KRZ_DEFAULT          0.085f
-#endif
+// #ifndef GEOCTRL_KRZ_DEFAULT
+//  #define GEOCTRL_KRZ_DEFAULT          0.085f
+// #endif
 
-#ifndef GEOCTRL_KOX_DEFAULT
- #define GEOCTRL_KOX_DEFAULT          0.035f
-#endif
+// #ifndef GEOCTRL_KOX_DEFAULT
+//  #define GEOCTRL_KOX_DEFAULT          0.035f
+// #endif
 
-#ifndef GEOCTRL_KOY_DEFAULT
- #define GEOCTRL_KOY_DEFAULT          0.03f
-#endif
+// #ifndef GEOCTRL_KOY_DEFAULT
+//  #define GEOCTRL_KOY_DEFAULT          0.03f
+// #endif
 
-#ifndef GEOCTRL_KOZ_DEFAULT
- #define GEOCTRL_KOZ_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_KOZ_DEFAULT
+//  #define GEOCTRL_KOZ_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_C1_DEFAULT
- #define GEOCTRL_C1_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_C1_DEFAULT
+//  #define GEOCTRL_C1_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_C2_DEFAULT
- #define GEOCTRL_C2_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_C2_DEFAULT
+//  #define GEOCTRL_C2_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_GAX_DEFAULT
- #define GEOCTRL_GAX_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_GAX_DEFAULT
+//  #define GEOCTRL_GAX_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_GAR_DEFAULT
- #define GEOCTRL_GAR_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_GAR_DEFAULT
+//  #define GEOCTRL_GAR_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_BX_DEFAULT
- #define GEOCTRL_BX_DEFAULT          0.4f
-#endif
+// #ifndef GEOCTRL_BX_DEFAULT
+//  #define GEOCTRL_BX_DEFAULT          0.4f
+// #endif
 
-#elif REAL_OR_SITL
-// default ACRL controller parameters (real)
-#ifndef GEOCTRL_KPX_DEFAULT
- #define GEOCTRL_KPX_DEFAULT          14.0f
-#endif
+// #elif REAL_OR_SITL
+// // default ACRL controller parameters (real)
+// #ifndef GEOCTRL_KPX_DEFAULT
+//  #define GEOCTRL_KPX_DEFAULT          14.0f
+// #endif
 
-#ifndef GEOCTRL_KPY_DEFAULT
- #define GEOCTRL_KPY_DEFAULT          15.0f
-#endif
+// #ifndef GEOCTRL_KPY_DEFAULT
+//  #define GEOCTRL_KPY_DEFAULT          15.0f
+// #endif
 
-#ifndef GEOCTRL_KPZ_DEFAULT
- #define GEOCTRL_KPZ_DEFAULT          15.0f
-#endif
+// #ifndef GEOCTRL_KPZ_DEFAULT
+//  #define GEOCTRL_KPZ_DEFAULT          15.0f
+// #endif
 
-#ifndef GEOCTRL_KVX_DEFAULT
- #define GEOCTRL_KVX_DEFAULT          1.5f
-#endif
+// #ifndef GEOCTRL_KVX_DEFAULT
+//  #define GEOCTRL_KVX_DEFAULT          1.5f
+// #endif
 
-#ifndef GEOCTRL_KVY_DEFAULT
- #define GEOCTRL_KVY_DEFAULT          0.9f
-#endif
+// #ifndef GEOCTRL_KVY_DEFAULT
+//  #define GEOCTRL_KVY_DEFAULT          0.9f
+// #endif
 
-#ifndef GEOCTRL_KVZ_DEFAULT
- #define GEOCTRL_KVZ_DEFAULT          1.1f
-#endif
+// #ifndef GEOCTRL_KVZ_DEFAULT
+//  #define GEOCTRL_KVZ_DEFAULT          1.1f
+// #endif
 
-#ifndef GEOCTRL_KRX_DEFAULT
- #define GEOCTRL_KRX_DEFAULT          0.55f
-#endif
+// #ifndef GEOCTRL_KRX_DEFAULT
+//  #define GEOCTRL_KRX_DEFAULT          0.55f
+// #endif
 
-#ifndef GEOCTRL_KRY_DEFAULT
- #define GEOCTRL_KRY_DEFAULT          0.35f
-#endif
+// #ifndef GEOCTRL_KRY_DEFAULT
+//  #define GEOCTRL_KRY_DEFAULT          0.35f
+// #endif
 
-#ifndef GEOCTRL_KRZ_DEFAULT
- #define GEOCTRL_KRZ_DEFAULT          0.15f
-#endif
+// #ifndef GEOCTRL_KRZ_DEFAULT
+//  #define GEOCTRL_KRZ_DEFAULT          0.15f
+// #endif
 
-#ifndef GEOCTRL_KOX_DEFAULT
- #define GEOCTRL_KOX_DEFAULT          0.035f
-#endif
+// #ifndef GEOCTRL_KOX_DEFAULT
+//  #define GEOCTRL_KOX_DEFAULT          0.035f
+// #endif
 
-#ifndef GEOCTRL_KOY_DEFAULT
- #define GEOCTRL_KOY_DEFAULT          0.03f
-#endif
+// #ifndef GEOCTRL_KOY_DEFAULT
+//  #define GEOCTRL_KOY_DEFAULT          0.03f
+// #endif
 
-#ifndef GEOCTRL_KOZ_DEFAULT
- #define GEOCTRL_KOZ_DEFAULT          0.004f
-#endif
+// #ifndef GEOCTRL_KOZ_DEFAULT
+//  #define GEOCTRL_KOZ_DEFAULT          0.004f
+// #endif
 
-#ifndef GEOCTRL_C1_DEFAULT
- #define GEOCTRL_C1_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_C1_DEFAULT
+//  #define GEOCTRL_C1_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_C2_DEFAULT
- #define GEOCTRL_C2_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_C2_DEFAULT
+//  #define GEOCTRL_C2_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_GAX_DEFAULT
- #define GEOCTRL_GAX_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_GAX_DEFAULT
+//  #define GEOCTRL_GAX_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_GAR_DEFAULT
- #define GEOCTRL_GAR_DEFAULT          0.04f
-#endif
+// #ifndef GEOCTRL_GAR_DEFAULT
+//  #define GEOCTRL_GAR_DEFAULT          0.04f
+// #endif
 
-#ifndef GEOCTRL_BX_DEFAULT
- #define GEOCTRL_BX_DEFAULT          0.4f
-#endif
+// #ifndef GEOCTRL_BX_DEFAULT
+//  #define GEOCTRL_BX_DEFAULT          0.4f
+// #endif
 
 #endif
 

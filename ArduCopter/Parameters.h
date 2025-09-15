@@ -422,6 +422,16 @@ public:
         k_param_GeoCtrl_DB3 = 293,
         k_param_GeoCtrl_TFT = 294,
         k_param_GeoCtrl_DBV = 295,
+        k_param_GeoFW_KPX = 296, // kpx for fix wing controller
+        k_param_GeoFW_KPY,       // kpy for fix wing controller
+        k_param_GeoFW_KPZ,       // kpz for fix wing controller
+        k_param_GeoFW_KIX,       // kix for fix wing controller
+        k_param_GeoFW_KIY,       // kiy for fix wing controller
+        k_param_GeoFW_KIZ,       // kiz for fix wing controller
+        k_param_GeoFW_KDX,       // kdx for fix wing controller
+        k_param_GeoFW_KDY,       // kdy for fix wing controller
+        k_param_GeoFW_KDZ,       // kdz for fix wing controller
+
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
@@ -530,6 +540,15 @@ public:
     AP_Float GeoCtrl_DB3;
     AP_Float GeoCtrl_TFT;
     AP_Int8 GeoCtrl_DBV;
+    AP_Float GeoFW_KPX; // kpx for fix wing controller
+    AP_Float GeoFW_KPY; // kpy for fix wing controller
+    AP_Float GeoFW_KPZ; // kpz for fix wing controller
+    AP_Float GeoFW_KIX; // kix for fix wing controller
+    AP_Float GeoFW_KIY; // kiy for fix wing controller
+    AP_Float GeoFW_KIZ; // kiz for fix wing controller
+    AP_Float GeoFW_KDX; // kdx for fix wing controller
+    AP_Float GeoFW_KDY; // kdy for fix wing controller
+    AP_Float GeoFW_KDZ; // kdz for fix wing controller
 
 #if MODE_THROW_ENABLED == ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;

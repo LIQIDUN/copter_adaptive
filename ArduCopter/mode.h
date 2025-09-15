@@ -1588,7 +1588,7 @@ public:
     using Mode::Mode;
     Number mode_number() const override { return Number::GEOMETRIC; }
 
-    // bool init(bool ignore_checks) override;
+    bool init(bool ignore_checks) override;
     virtual void run() override;
 
     bool requires_GPS() const override { return false; }
@@ -1600,15 +1600,28 @@ public:
     bool allows_autotune() const override { return true; }
     bool allows_flip() const override { return true; }
 
-    const float GRAVITY_MAGNITUDE = 9.8; // gravitational acceleration
+    const float GRAVITY_MAGNITUDE = 9.81; // gravitational acceleration
     void GEO_land_detect(float initalt);
 
     bool land_is_ok_flag = false;
     const float sin_time_T = 4;
 
-    bool in_horizon_flight =false;
-    bool in_trj_flight =false;
-    
+    bool in_horizon_flight = false;
+    bool in_trj_flight = false;
+
+    bool position_estimate_available_flag = true;
+
+    uint32_t initial_time_in_geometric;
+    uint32_t last_time_in_geometric;
+    Vector3f enterpos;    // 进入跟踪模式的位置
+    Vector3f TRJstartpos; // 完成初始加速，开始跟踪的位置
+    int8_t getposAvailable;
+    int8_t trajectory_num;
+    int8_t info_send_flag;
+    int8_t rc_lost_info_flag;
+    float init_alt;      // NED D alt 起飞点高度
+    float take_off_time; // 输入起飞时间
+
     bool is_in_horizon_flight(float flight_time);
 #if (!REAL_OR_SITL) // SITL
     // // quad X default parameters
@@ -1629,6 +1642,7 @@ public:
     const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
     // const Matrix3f Jinv = {496.03, 0, 0, 0, 547.345, 0, 0, 0, 310.559}; // hand-computed
 #endif
+    float PID_Controller(float error, float kp, float ki, float kd);
 
 protected:
     const char *name() const override { return "GEOMETRIC"; }
@@ -1655,6 +1669,10 @@ private:
         Vector2f targetYaw_dot,
         Vector2f targetYaw_ddot,
         float timeinrun);
+    VectorN<float, 3> FixWingController(
+        float FW_target_pitch,
+        float FW_target_roll,
+        float FW_target_yaw_rate);
 
     Matrix3f hatOperator(Vector3f input);
     Vector3f veeOperator(Matrix3f input);
