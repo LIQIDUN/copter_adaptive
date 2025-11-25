@@ -314,6 +314,10 @@
 # define GEOCTRL_RDI_DEFAULT 10
 #endif
 
+#ifndef GEOCTRL_RDY_DEFAULT
+# define GEOCTRL_RDY_DEFAULT 10
+#endif
+
 #ifndef GEOCTRL_TIM_DEFAULT
 # define GEOCTRL_TIM_DEFAULT 30
 #endif
@@ -322,8 +326,8 @@
 # define GEOCTRL_MAS_DEFAULT 0.72
 #endif
 
-#ifndef GEOCTRL_MIX_DEFAULT
-# define GEOCTRL_MIX_DEFAULT 0
+#ifndef GEOCTRL_VEL_DEFAULT
+# define GEOCTRL_VEL_DEFAULT 1.0
 #endif
 
 #ifndef GEOCTRL_ALL_DEFAULT
@@ -354,8 +358,16 @@
 # define GEOCTRL_DBV_DEFAULT 0
 #endif
 
+#ifndef GEOCTRL_ALT_DEFAULT
+# define GEOCTRL_ALT_DEFAULT 1
+#endif
+
+#ifndef LANDFLAG_DEFAULT
+# define LANDFLAG_DEFAULT 0
+#endif
+
 #ifndef REAL_OR_SITL
-# define REAL_OR_SITL 0 // 0 for SITL and 1 for REAL
+# define REAL_OR_SITL 1 // 0 for SITL and 1 for REAL
 #endif
 
 #if !REAL_OR_SITL

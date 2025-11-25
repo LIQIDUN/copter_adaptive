@@ -407,21 +407,25 @@ public:
         k_param_GeoCtrl_C1 = 277,
         k_param_GeoCtrl_C2,
         k_param_GeoCtrl_GAX,
-        k_param_GeoCtrl_GAR = 281,
-        k_param_GeoCtrl_BX = 282,
-        k_param_GeoCtrl_ADP = 283,
-        k_param_GeoCtrl_NUM = 284,
-        k_param_GeoCtrl_RDI = 285,
-        k_param_GeoCtrl_TIM = 286,
-        k_param_GeoCtrl_MAS = 287,
-        k_param_GeoCtrl_MIX = 288,
-        k_param_GeoCtrl_ALL = 289,
-        k_param_GeoCtrl_DB0 = 290,
-        k_param_GeoCtrl_DB1 = 291,
-        k_param_GeoCtrl_DB2 = 292,
-        k_param_GeoCtrl_DB3 = 293,
-        k_param_GeoCtrl_TFT = 294,
-        k_param_GeoCtrl_DBV = 295,
+        k_param_GeoCtrl_GAR ,
+        k_param_GeoCtrl_BX ,
+        k_param_GeoCtrl_ADP ,
+        k_param_GeoCtrl_NUM ,
+        k_param_GeoCtrl_RDI ,
+        k_param_GeoCtrl_RDY ,
+        k_param_GeoCtrl_TIM ,
+        k_param_GeoCtrl_MAS ,
+        k_param_GeoCtrl_VEL ,
+        k_param_GeoCtrl_ALL ,
+        k_param_GeoCtrl_DB0 ,
+        k_param_GeoCtrl_DB1 ,
+        k_param_GeoCtrl_DB2 ,
+        k_param_GeoCtrl_DB3,
+        k_param_GeoCtrl_TFT,
+        k_param_GeoCtrl_DBV,
+        k_param_GeoCtrl_ALT,
+        k_param_LandFlag,
+        
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
@@ -520,9 +524,10 @@ public:
     AP_Int8 GeoCtrl_ADP;
     AP_Int8 GeoCtrl_NUM;
     AP_Float GeoCtrl_RDI;
+    AP_Float GeoCtrl_RDY;
     AP_Float GeoCtrl_TIM;
     AP_Float GeoCtrl_MAS;
-    AP_Int8 GeoCtrl_MIX;
+    AP_Float GeoCtrl_VEL;
     AP_Float GeoCtrl_ALL;
     AP_Float GeoCtrl_DB0;
     AP_Float GeoCtrl_DB1;
@@ -530,6 +535,8 @@ public:
     AP_Float GeoCtrl_DB3;
     AP_Float GeoCtrl_TFT;
     AP_Int8 GeoCtrl_DBV;
+    AP_Float GeoCtrl_ALT;
+    AP_Int8 LandFlag;
 
 #if MODE_THROW_ENABLED == ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;

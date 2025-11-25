@@ -1588,7 +1588,7 @@ public:
     using Mode::Mode;
     Number mode_number() const override { return Number::GEOMETRIC; }
 
-    // bool init(bool ignore_checks) override;
+    bool init(bool ignore_checks) override;
     virtual void run() override;
 
     bool requires_GPS() const override { return false; }
@@ -1630,6 +1630,32 @@ public:
     // const Matrix3f Jinv = {496.03, 0, 0, 0, 547.345, 0, 0, 0, 310.559}; // hand-computed
 #endif
 
+    uint32_t initial_time_in_geometric ;
+    uint32_t last_time_in_geometric ;
+    Vector3f enterpos;    // 进入跟踪模式的位置
+    Vector3f TRJstartpos; // 完成初始加速，开始跟踪的位置
+    int8_t getposAvailable ;
+    int8_t trajectory_num ;
+    float radiusX; // 轨迹参数，半径
+    float radiusY; // 轨迹参数，半径
+    // static float targetSpeed = g.GeoCtrl_VEL; // 轨迹参数，
+    float targetSpeed;
+    int8_t info_send_flag ;
+    int8_t rc_lost_info_flag ;
+    float init_alt ;                  // NED D alt 起飞点高度
+    float take_off_time; // 输入起飞时间
+    
+
+
+    // the variables below are defined for the landing procedure
+    uint8_t landingTriggered; // indicator of whether a landing command has been triggered (via setting g2.landingFlag to 1)
+    Vector3f currentPosition; // storing the current position of the vehicle (NED in meters)
+    Vector3f currentVelocity; // storing the current velocity of the vehicle (NED in meters per second)
+    float currentYaw; // storing the current yaw angle of the vehicle
+    float landingTimeOffset; // store the time when the land command is triggered
+    uint8_t landingComplete; // indicator of whether landing is completed
+
+
 protected:
     const char *name() const override { return "GEOMETRIC"; }
     const char *name4() const override { return "GEOM"; }
@@ -1645,16 +1671,6 @@ private:
         Vector2f targetYaw,
         Vector2f targetYaw_dot,
         Vector2f targetYaw_ddot); // controller for trajectory control
-    VectorN<float, 4> AdaptiveController(
-        Vector3f targetPos,
-        Vector3f targetVel,
-        Vector3f targetAcc,
-        Vector3f targetJerk,
-        Vector3f targetSnap,
-        Vector2f targetYaw,
-        Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot,
-        float timeinrun);
 
     Matrix3f hatOperator(Vector3f input);
     Vector3f veeOperator(Matrix3f input);
