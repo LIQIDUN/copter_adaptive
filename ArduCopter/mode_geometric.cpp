@@ -8,6 +8,7 @@
 #include "ACRL_trajectories.h"
 #include <AP_Math/AP_Math.h>
 #include <AP_AHRS/AP_AHRS.h>
+// #include "tilt_control.h"
 /*
  * Init and run calls for Geometric flight mode
  */
@@ -436,7 +437,8 @@ void ModeGeometric::run()
         motors->rc_write(1, 1000 + motorEnable * 10 * motorPWM[1]); // rc_write is called from <AP_Motors/AP_Motors_Class.h>
         motors->rc_write(2, 1000 + motorEnable * 10 * motorPWM[2]);
         motors->rc_write(3, 1000 + motorEnable * 10 * motorPWM[3]);
-
+        // copter._tilt_setpoint = (uint16_t)1145;
+        copter._tilt_setpoint = (uint16_t)(1000 + motorEnable * 10 * motorPWM[0]);
         //     motors->rc_write(0, motorEnable * 0);
         //     motors->rc_write(1, motorEnable * 0);
         //     motors->rc_write(2, motorEnable * 0);

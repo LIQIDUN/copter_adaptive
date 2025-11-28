@@ -901,6 +901,10 @@ private:
     void motors_output();
     void lost_vehicle_check();
 
+    //tilt_control.cpp
+    void tilt_servo_setpoint();
+    uint16_t _tilt_setpoint=(uint16_t)1500;
+
     // navigation.cpp
     void run_nav_updates(void);
     int32_t home_bearing();
