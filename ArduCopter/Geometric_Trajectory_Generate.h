@@ -96,20 +96,20 @@ void Trajectory_Generate_EIGHT_AUTO(float timeInThisRun,
                                     Vector2f *targetYaw_dot,
                                     Vector2f *targetYaw_ddot);
 void Trajectory_Generate_LSR_AUTO(float timeInThisRun,
-                                    float targetAlt,
-                                    float takeofftime,
-                                    float r_circle,
-                                    float T_circle,
-                                    bool *in_flight,
-                                    bool *in_trj,
-                                    Vector3f *targetPos,
-                                    Vector3f *targetVel,
-                                    Vector3f *targetAcc,
-                                    Vector3f *targetJerk,
-                                    Vector3f *targetSnap,
-                                    Vector2f *targetYaw,
-                                    Vector2f *targetYaw_dot,
-                                    Vector2f *targetYaw_ddot);
+                                  float targetAlt,
+                                  float takeofftime,
+                                  float r_circle,
+                                  float T_circle,
+                                  bool *in_flight,
+                                  bool *in_trj,
+                                  Vector3f *targetPos,
+                                  Vector3f *targetVel,
+                                  Vector3f *targetAcc,
+                                  Vector3f *targetJerk,
+                                  Vector3f *targetSnap,
+                                  Vector2f *targetYaw,
+                                  Vector2f *targetYaw_dot,
+                                  Vector2f *targetYaw_ddot);
 
 void Trajectory_Generate_LINE(float timeInThisRun,
                               Vector3f *targetPos,
@@ -150,6 +150,20 @@ void Trajectory_Generate_POS(
     Vector2f *targetYaw,
     Vector2f *targetYaw_dot,
     Vector2f *targetYaw_ddot);
+
+void Trajectory_Generate_POS_TILT_AUTO(float timeInThisRun, float targetAlt,
+                                       float takeofftime,
+                                       float T_circle,
+                                       bool *in_flight,
+                                       Vector3f *targetPos,
+                                       Vector3f *targetVel,
+                                       Vector3f *targetAcc,
+                                       Vector3f *targetJerk,
+                                       Vector3f *targetSnap,
+                                       Vector3f *targetHead,
+                                       Vector3f *targetHead_dot,
+                                       Vector3f *targetHead_ddot
+                                       );
 
 float polyEval(float polyCoef[], float x, int N);
 float polyDiffEval(float polyDiffCoef[], float x, int N);

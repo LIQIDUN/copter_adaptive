@@ -11,7 +11,7 @@ void Copter::tilt_servo_setpoint()
 
     if (copter.flightmode->mode_number() != Mode::Number::GEOMETRIC)
     {
-        copter._tilt_setpoint = 1500;
+        copter._tilt_setpoint = 1850;
     }
 
     static uint16_t PWM5;
@@ -23,6 +23,8 @@ void Copter::tilt_servo_setpoint()
     // uint16_t PWM6=1150;
     motors->rc_write(4, PWM5);
     motors->rc_write(5, PWM6);
+    motors->rc_write(6, PWM5);
+    motors->rc_write(7, PWM6);
 
     AP::logger().Write("TILT", "TimeUS,m5,m6", "QHH",
                        AP_HAL::micros64(),

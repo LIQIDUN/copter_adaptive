@@ -1626,7 +1626,8 @@ public:
     float kg_vehicleMass;
     // const float kg_vehicleMass = g.GeoCtrl_MAS;   // weight for the real drone
     // float kg_vehicleMass;   // weight for the real drone
-    const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
+    // const Matrix3f J = {0.00213388, 0, 0, 0, 0.00348709, 0, 0, 0, 0.00489948}; // This is from CAD model of the real drone,import lqd
+    const Matrix3f J = {0.00243370, 0, 0, 0, 0.00409330, 0, 0, 0, 0.00526115}; 
     // const Matrix3f Jinv = {496.03, 0, 0, 0, 547.345, 0, 0, 0, 310.559}; // hand-computed
 #endif
 
@@ -1662,15 +1663,15 @@ protected:
 
 private:
     // VectorN<float, 4> geometricAttitudeController(Matrix3f targetattitude); //simplifed controller ,only control attidude
-    VectorN<float, 4> GeometricTrajectoryController(
+    VectorN<float, 5> GeometricTrajectoryController(
         Vector3f targetPos,
         Vector3f targetVel,
         Vector3f targetAcc,
         Vector3f targetJerk,
         Vector3f targetSnap,
-        Vector2f targetYaw,
-        Vector2f targetYaw_dot,
-        Vector2f targetYaw_ddot); // controller for trajectory control
+        Vector3f targetHead,
+        Vector3f targetHead_dot,
+        Vector3f targetHead_ddot); // controller for trajectory control
 
     Matrix3f hatOperator(Vector3f input);
     Vector3f veeOperator(Matrix3f input);
@@ -1679,8 +1680,8 @@ private:
     VectorN<float, 16> mat4Inv(VectorN<float, 4> coefficientRow1, VectorN<float, 4> coefficientRow2, VectorN<float, 4> coefficientRow3, VectorN<float, 4> coefficientRow4);
 
     float vector_2norm(Vector3f A);
-    VectorN<float, 4> motorMixSimple(VectorN<float, 4> thrustMomentCmd);
-
+    VectorN<float, 4> motorMixSimple(VectorN<float, 5> thrustMomentCmd);
+    uint16_t tilt_angle_2_PWM(float tilt_angle);
     // bool att_not_safe();
 };
 

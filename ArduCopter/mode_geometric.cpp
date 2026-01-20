@@ -84,7 +84,7 @@ void ModeGeometric::run()
 
     // start of the Geometric  controller
 
-    VectorN<float, 4> thrustAndMomentCmd;
+    VectorN<float, 5> thrustAndMomentCmd;
 
     uint32_t now_time_in_geometric = AP_HAL::micros();
     float timeInThisRun = (float)0.000001f * (now_time_in_geometric - initial_time_in_geometric);
@@ -94,6 +94,9 @@ void ModeGeometric::run()
     Vector3f targetAcc;
     Vector3f targetJerk;
     Vector3f targetSnap;
+    Vector3f targetHead;
+    Vector3f targetHead_dot;
+    Vector3f targetHead_ddot;
     Vector2f targetYaw;
     Vector2f targetYaw_dot;
     Vector2f targetYaw_ddot;
@@ -227,6 +230,14 @@ void ModeGeometric::run()
         ACRL_trajectory_figure8_tilted(timeInThisRun, radiusX, radiusY, targetSpeed, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         break;
     }
+    case 9: //
+    {
+        float T_circle = g.GeoCtrl_TIM;
+        const float targetAlt = g.GeoCtrl_ALT;
+        in_horizon_flight = false;
+        Trajectory_Generate_POS_TILT_AUTO(timeInThisRun, targetAlt, take_off_time, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetHead, &targetHead_dot, &targetHead_ddot);
+        break;
+    }
     default:
         Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         gcs().send_text(MAV_SEVERITY_CRITICAL, "VOID Trajectory NUM");
@@ -275,66 +286,8 @@ void ModeGeometric::run()
         targetPos = targetPos + enterpos;
     }
 
-    // 控制器选择
-    if (g.GeoCtrl_ADP == 0)
-    {
-        // 关闭自适应
-        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
-    }
-    else if (g.GeoCtrl_ADP == 1)
-    {
-        // 打开自适应
-        // thrustAndMomentCmd = ModeGeometric::AdaptiveController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot, timeInThisRun);
-
-        if (is_in_horizon_flight(timeInThisRun))
-        {
-            // 测试，加入扰动
-            if (g.GeoCtrl_DBV == 0)
-            {
-                thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
-                thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
-                thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
-                thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
-            }
-            else if (g.GeoCtrl_DBV == 1)
-            {
-                float sin_time = timeInThisRun;
-                float sin_time_w = 2 * M_PI / sin_time_T;
-
-                thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
-            }
-        }
-    }
-    else if (g.GeoCtrl_ADP == 2)
-    {
-        // 关闭自适应，但是还有扰动
-        thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetYaw, targetYaw_dot, targetYaw_ddot);
-
-        if (is_in_horizon_flight(timeInThisRun))
-        {
-            // 测试，加入扰动
-            if (g.GeoCtrl_DBV == 0)
-            {
-                thrustAndMomentCmd[0] += g.GeoCtrl_DB0;
-                thrustAndMomentCmd[1] += g.GeoCtrl_DB1;
-                thrustAndMomentCmd[2] += g.GeoCtrl_DB2;
-                thrustAndMomentCmd[3] += g.GeoCtrl_DB3;
-            }
-            else if (g.GeoCtrl_DBV == 1)
-            {
-                float sin_time = timeInThisRun;
-                float sin_time_w = 2 * M_PI / sin_time_T;
-
-                thrustAndMomentCmd[0] += g.GeoCtrl_DB0 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[1] += g.GeoCtrl_DB1 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[2] += g.GeoCtrl_DB2 * sinf(sin_time_w * sin_time);
-                thrustAndMomentCmd[3] += g.GeoCtrl_DB3 * sinf(sin_time_w * sin_time);
-            }
-        }
-    }
+    // 关闭自适应
+    thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetHead, targetHead_dot, targetHead_ddot);
 
     // motor mixing
     VectorN<float, 4> motorPWM;
@@ -437,8 +390,9 @@ void ModeGeometric::run()
         motors->rc_write(1, 1000 + motorEnable * 10 * motorPWM[1]); // rc_write is called from <AP_Motors/AP_Motors_Class.h>
         motors->rc_write(2, 1000 + motorEnable * 10 * motorPWM[2]);
         motors->rc_write(3, 1000 + motorEnable * 10 * motorPWM[3]);
-        // copter._tilt_setpoint = (uint16_t)1145;
-        copter._tilt_setpoint = (uint16_t)(1000 + motorEnable * 10 * motorPWM[0]);
+        // uint8_t rc_tilt_in  = rc().channel(CH_9)->percent_input();
+        // copter._tilt_setpoint = (uint16_t)(1500.0+700.0*((float)rc_tilt_in-50.0)/50.0);
+        copter._tilt_setpoint = (uint16_t)tilt_angle_2_PWM(thrustAndMomentCmd[4]);
         //     motors->rc_write(0, motorEnable * 0);
         //     motors->rc_write(1, motorEnable * 0);
         //     motors->rc_write(2, motorEnable * 0);
@@ -479,24 +433,26 @@ void ModeGeometric::run()
     last_time_in_geometric = now_time_in_geometric;
 }
 
-VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
+VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     Vector3f targetPos,
     Vector3f targetVel,
     Vector3f targetAcc,
     Vector3f targetJerk,
     Vector3f targetSnap,
-    Vector2f targetYaw,
-    Vector2f targetYaw_dot,
-    Vector2f targetYaw_ddot)
+    Vector3f targetHead,
+    Vector3f targetHead_dot,
+    Vector3f targetHead_ddot)
 {
     Vector3f r_error;
     Vector3f v_error;
     Vector3f target_force;
-    Vector3f z_axis;
+    Vector3f thrust_axis;
     Vector3f x_axis_desired;
     Vector3f y_axis_desired;
+    Vector3f z_axis_desired;
     Vector3f x_c_des;
     Vector3f eR, ew, M;
+
     Vector3f e3 = {0, 0, 1};
 
     Vector3f statePos;
@@ -504,15 +460,18 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
 
     Vector2f positionNE;
 
+    float tilt_angle;
+
     int locAvailable = ahrs.get_relative_position_NED_origin(statePos);
     if (!locAvailable)
     {
         gcs().send_text(MAV_SEVERITY_CRITICAL, "location unavailable.");
-        VectorN<float, 4> no_out_put;
+        VectorN<float, 5> no_out_put;
         no_out_put[0] = 0;
         no_out_put[1] = 0;
         no_out_put[2] = 0;
         no_out_put[3] = 0;
+        no_out_put[4] = 0;
         return no_out_put;
     }
 
@@ -554,44 +513,71 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     Quaternion q;
     if (!ahrs.get_secondary_quaternion(q))
     {
-        VectorN<float, 4> no_out_put;
+        VectorN<float, 5> no_out_put;
         no_out_put[0] = 0;
         no_out_put[1] = 0;
         no_out_put[2] = 0;
         no_out_put[3] = 0;
+        no_out_put[4] = 0;
         return no_out_put;
     }
     q.rotation_matrix(R); // transforming the quaternion q to rotation matrix R
 
-    z_axis = R.colz();
+    Vector3f targetHead_norm = targetHead.normalized();
+    float input_Pitch_rad = asinf(-targetHead_norm[2]); // NED系：机头向上，z 为负。仰角为正
+    tilt_angle = input_Pitch_rad;
+    Matrix3f R_motor2body;
+    R_motor2body.from_euler(0, -tilt_angle, 0); // 旋翼坐标系转机体坐标系
+
+    // gcs().send_text(MAV_SEVERITY_INFO, "cosPitch:%f,sinPitch:%f", cosPitch, sinPitch);
+    // Matrix3f R_motor2body = Matrix3f(Vector3f(cosPitch, 0, sinPitch),
+    //                                  Vector3f(0, 1, 0),
+    //                                  Vector3f(-sinPitch, 0, cosPitch));
+
+    Matrix3f R_motor2world = R * R_motor2body; // 旋翼坐标系转机体坐标系
+
+    thrust_axis = R_motor2world * e3; // 计算推力方向 b3
 
     // target thrust [F]
-    float target_thrust = -target_force * z_axis;
+    float target_thrust = -target_force * thrust_axis;
+    // float target_thrust = target_force.length();
 
     // Calculate axis [zB_des]
-    Vector3f z_axis_desired = -target_force;
-    z_axis_desired.normalize();
+    // z_axis_desired = R_motor2body * (-target_force);
+    Matrix3f R_body2world_des;
+    Matrix3f R_motor2world_des;
+    Vector3f motor2world_des_x;
+    Vector3f motor2world_des_y;
+    Vector3f motor2world_des_z;
 
-    // [xC_des]
-    // x_axis_desired = z_axis_desired x [cos(yaw), sin(yaw), 0]^T
-    x_c_des[0] = targetYaw[0]; // x
-    x_c_des[1] = targetYaw[1]; // y
-    x_c_des[2] = 0;            // z
+    motor2world_des_z = (-target_force);
+    motor2world_des_z.normalize();
 
-    Vector3f x_c_des_dot = {targetYaw_dot, 0};   // time derivative of x_c_des
-    Vector3f x_c_des_ddot = {targetYaw_ddot, 0}; // time derivative of x_c_des_dot
+    motor2world_des_x = targetHead;
 
-    // [yB_des]
-    y_axis_desired = (z_axis_desired % x_c_des);
-    y_axis_desired.normalize();
-    // [xB_des]
-    x_axis_desired = y_axis_desired % z_axis_desired;
+    motor2world_des_y = motor2world_des_z % motor2world_des_x;
+    motor2world_des_y.normalize();
+
+    motor2world_des_x = motor2world_des_y % motor2world_des_z;
+    motor2world_des_x.normalize();
+
+    R_motor2world_des.a = motor2world_des_x;
+    R_motor2world_des.b = motor2world_des_y;
+    R_motor2world_des.c = motor2world_des_z;
+    R_motor2world_des.transpose();
+
+    R_body2world_des = R_motor2world_des * R_motor2body.transposed();
 
     // [eR]
-    Matrix3f Rdes(Vector3f(x_axis_desired.x, y_axis_desired.x, z_axis_desired.x),
-                  Vector3f(x_axis_desired.y, y_axis_desired.y, z_axis_desired.y),
-                  Vector3f(x_axis_desired.z, y_axis_desired.z, z_axis_desired.z));
+    // Matrix3f Rdes(Vector3f(x_axis_desired.x, y_axis_desired.x, z_axis_desired.x),
+    //               Vector3f(x_axis_desired.y, y_axis_desired.y, z_axis_desired.y),
+    //               Vector3f(x_axis_desired.z, y_axis_desired.z, z_axis_desired.z));
+    Matrix3f Rdes = R_body2world_des;
 
+    // [xC_des]
+    x_c_des = targetHead;
+    Vector3f x_c_des_dot = targetHead_dot;   // time derivative of x_c_des
+    Vector3f x_c_des_ddot = targetHead_ddot; // time derivative of x_c_des_dot
     Matrix3f eRM = (Rdes.transposed() * R - R.transposed() * Rdes) / 2;
     eR = veeOperator(eRM);
 
@@ -599,19 +585,21 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
 
     // compute Omegad: this comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
     Vector3f a_error; // error on acceleration
-    a_error = e3 * GRAVITY_MAGNITUDE - R.colz() * target_thrust / kg_vehicleMass - targetAcc;
+    // a_error = e3 * GRAVITY_MAGNITUDE - R.colz() * target_thrust / kg_vehicleMass - targetAcc;
+    a_error = e3 * GRAVITY_MAGNITUDE - R_motor2world.colz() * target_thrust / kg_vehicleMass - targetAcc;
 
     Vector3f target_force_dot; // derivative of target_force
     target_force_dot.x = -g.GeoCtrl_Kpx * v_error.x - g.GeoCtrl_Kvx * a_error.x + kg_vehicleMass * targetJerk.x;
     target_force_dot.y = -g.GeoCtrl_Kpy * v_error.y - g.GeoCtrl_Kvy * a_error.y + kg_vehicleMass * targetJerk.y;
     target_force_dot.z = -g.GeoCtrl_Kpz * v_error.z - g.GeoCtrl_Kvz * a_error.z + kg_vehicleMass * targetJerk.z;
 
-    Vector3f b3_dot = R * hatOperator(Omega) * e3;
+    //推力轴方向b3 = R_motor2world * e3
+    Vector3f b3_dot = R_motor2world * hatOperator(Omega) * e3;
 
-    float target_thrust_dot = -target_force_dot * R.colz() - target_force * b3_dot;
+    float target_thrust_dot = -target_force_dot * R_motor2world.colz() - target_force * b3_dot;
 
     Vector3f j_error; // error on jerk
-    j_error = -R.colz() * target_thrust_dot / kg_vehicleMass - b3_dot * target_thrust / kg_vehicleMass - targetJerk;
+    j_error = -R_motor2world.colz() * target_thrust_dot / kg_vehicleMass - b3_dot * target_thrust / kg_vehicleMass - targetJerk;
 
     Vector3f target_force_ddot; // derivative of target_force_dot
     target_force_ddot.x = -g.GeoCtrl_Kpx * a_error.x - g.GeoCtrl_Kvx * j_error.x + kg_vehicleMass * targetSnap.x;
@@ -689,12 +677,14 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
     M = M - J * (hatOperator(Omega) * R.transposed() * Rdes * Omegad - R.transposed() * Rdes * Omegad_dot);
     Vector3f momentAdd = Omega % (J * Omega); // J is the inertia matrix
     M = M + momentAdd;
+    M = R_motor2body.transposed() * M; // 转到机体坐标系下的力矩
 
-    VectorN<float, 4> thrustMomentCmd;
+    VectorN<float, 5> thrustMomentCmd;
     thrustMomentCmd[0] = target_thrust;
     thrustMomentCmd[1] = M.x;
     thrustMomentCmd[2] = M.y;
     thrustMomentCmd[3] = M.z;
+    thrustMomentCmd[4] = tilt_angle;
 
     // logging
     AP::logger().Write("GEOM", "TimeUS,exx,exy,exz,evx,evy,evz,erx,ery,erz,ewx,ewy,ewz", "Qffffffffffff",
@@ -711,7 +701,7 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (ew.x),
                        (ew.y),
                        (ew.z));
-    AP::logger().Write("GECT", "TimeUS,tfx,tfy,tfz,tt,mx,my,mz", "Qfffffff",
+    AP::logger().Write("GECT", "TimeUS,tfx,tfy,tfz,tt,mx,my,mz,tlt,tax,tay,taz", "Qfffffffffff",
                        AP_HAL::micros64(),
                        (target_force.x),
                        (target_force.y),
@@ -719,7 +709,11 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        (target_thrust),
                        (M.x),
                        (M.y),
-                       (M.z));
+                       (M.z),
+                       (tilt_angle),
+                       (thrust_axis.x),
+                       (thrust_axis.y),
+                       (thrust_axis.z));
     AP::logger().Write("GETA", "TimeUS,tpx,tpy,tpz,spx,spy,spz,tvx,tvy,tvz,svx,svy,svz", "Qffffffffffff",
                        AP_HAL::micros64(),
                        (targetPos.x),
@@ -757,6 +751,17 @@ VectorN<float, 4> ModeGeometric::GeometricTrajectoryController(
                        R.c.x,
                        R.c.y,
                        R.c.z);
+    AP::logger().Write("MOWD", "TimeUS,R11,R12,R13,R21,R22,R23,R31,R32,R33", "Qfffffffff",
+                       AP_HAL::micros64(),
+                       R_motor2world.a.x,
+                       R_motor2world.a.y,
+                       R_motor2world.a.z,
+                       R_motor2world.b.x,
+                       R_motor2world.b.y,
+                       R_motor2world.b.z,
+                       R_motor2world.c.x,
+                       R_motor2world.c.y,
+                       R_motor2world.c.z);
     return thrustMomentCmd;
 }
 
@@ -795,7 +800,7 @@ Vector3f ModeGeometric::veeOperator(Matrix3f input)
     return output;
 }
 
-VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 4> thrustMomentCmd)
+VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 5> thrustMomentCmd)
 {
     VectorN<float, 4> motor_pwm;
 #if (!REAL_OR_SITL) // SITL
@@ -861,10 +866,10 @@ VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 4> thrustMomentCm
     quad_output_mat_fm2f2[2] = 0.5 / D;
     quad_output_mat_fm2f2[3] = -0.5 / D;
 
-    quad_output_mat_fm2f3[0] = 0.5 / D;
-    quad_output_mat_fm2f3[1] = -0.5 / D;
-    quad_output_mat_fm2f3[2] = 0.5 / D;
-    quad_output_mat_fm2f3[3] = -0.5 / D;
+    quad_output_mat_fm2f3[0] = 0.5 / (D * cosf(thrustMomentCmd[4]));
+    quad_output_mat_fm2f3[1] = -0.5 / (D * cosf(thrustMomentCmd[4]));
+    quad_output_mat_fm2f3[2] = 0.5 / (D * cosf(thrustMomentCmd[4]));
+    quad_output_mat_fm2f3[3] = -0.5 / (D * cosf(thrustMomentCmd[4]));
 
     quad_output_mat_fm2f4[0] = 0.25 / ct;
     quad_output_mat_fm2f4[1] = 0.25 / ct;
@@ -981,4 +986,18 @@ bool ModeGeometric::is_in_horizon_flight(float flight_time)
     {
         return false;
     }
+}
+uint16_t ModeGeometric::tilt_angle_2_PWM(float tilt_angle)
+{
+    float ans;
+    ans = 1850 + (-2100.0 / M_PI) * tilt_angle;
+    if (ans > 1850)
+    {
+        ans = 1850;
+    }
+    if (ans < 800)
+    {
+        ans = 800;
+    }
+    return (uint16_t)ans;
 }

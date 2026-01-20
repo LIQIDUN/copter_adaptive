@@ -928,6 +928,130 @@ void Trajectory_Generate_BIGSINWAVE(float timeInThisRun,
     }
 }
 
+// 全自动起飞2m高度，悬停10s，降落，时间从0开始计算，仿真可用
+void Trajectory_Generate_POS_TILT_AUTO(float timeInThisRun,
+                                       float targetAlt,
+                                       float takeofftime,
+                                       float T_circle,
+                                       bool *in_flight,
+                                       Vector3f *targetPos,
+                                       Vector3f *targetVel,
+                                       Vector3f *targetAcc,
+                                       Vector3f *targetJerk,
+                                       Vector3f *targetSnap,
+                                       Vector3f *targetHead,
+                                       Vector3f *targetHead_dot,
+                                       Vector3f *targetHead_ddot)
+{
+    // NED a=0.08
+    // const float acc_climb = 0.08; // 加速度0.08
+    Vector2f *targetYaw;
+    Vector2f *targetYaw_dot;
+    Vector2f *targetYaw_ddot;
+    Vector2f targetNull;
+    targetNull = {0, 0};
+
+    // 加速时间
+    float time_takeoff = takeofftime;
+    // time_takeoff = 2 * sqrtf(targetAlt / acc_climb); // 加速时间，起飞全过程
+    // float acc_climb = 4 * targetAlt / (time_takeoff * time_takeoff);
+    targetYaw = &targetNull;
+    targetYaw_dot = &targetNull;
+    targetYaw_ddot = &targetNull;
+
+    float time_land = time_takeoff;
+    // 悬停时间
+    const float time_in_pos = T_circle;
+
+    if (timeInThisRun >= 0 && timeInThisRun <= time_takeoff)
+    {
+        *in_flight = 0;
+        Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun,
+                                                targetAlt,
+                                                time_takeoff,
+                                                targetPos,
+                                                targetVel,
+                                                targetAcc,
+                                                targetJerk,
+                                                targetSnap,
+                                                targetYaw,
+                                                targetYaw_dot,
+                                                targetYaw_ddot);
+        *targetHead = Vector3f{1, 0, 0};
+        *targetHead_dot = Vector3f{0, 0, 0};
+        *targetHead_ddot = Vector3f{0, 0, 0};
+    }
+
+    else if (timeInThisRun > time_takeoff && timeInThisRun <= time_takeoff + time_in_pos)
+    {
+        // 实现悬停
+
+        *in_flight = 1;
+        *targetPos = (Vector3f){0, 0, -targetAlt};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+        float max_tilt = 30;
+        max_tilt = max_tilt * M_PI / 180;
+        if (timeInThisRun - time_takeoff < time_in_pos / 2)
+        {
+
+            float angle_pitch = cosf((timeInThisRun - time_takeoff) * 2 * (max_tilt / time_in_pos));
+            *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
+            *targetHead_dot = Vector3f{0, 0, 0};
+            *targetHead_ddot = Vector3f{0, 0, 0};
+        }
+        else
+        {
+            float angle_pitch = cosf(max_tilt - (timeInThisRun - time_takeoff - time_in_pos / 2) * 2 * (max_tilt / time_in_pos));
+            *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
+            *targetHead_dot = Vector3f{0, 0, 0};
+            *targetHead_ddot = Vector3f{0, 0, 0};
+        }
+    }
+    else if (timeInThisRun > time_takeoff + time_in_pos && timeInThisRun <= time_takeoff + time_in_pos + time_land)
+    {
+        *in_flight = 0;
+        float time_land_operate = timeInThisRun - (time_takeoff + time_in_pos);
+        Trajectory_Generate_ALT_TO_LAND_AUTO(time_land_operate,
+                                             targetAlt,
+                                             time_takeoff,
+                                             targetPos,
+                                             targetVel,
+                                             targetAcc,
+                                             targetJerk,
+                                             targetSnap,
+                                             targetYaw,
+                                             targetYaw_dot,
+                                             targetYaw_ddot);
+        *targetHead = Vector3f{1, 0, 0};
+        *targetHead_dot = Vector3f{0, 0, 0};
+        *targetHead_ddot = Vector3f{0, 0, 0};
+    }
+    else
+    {
+        *in_flight = 0;
+        *targetPos = (Vector3f){0, 0, 0};
+
+        *targetVel = (Vector3f){0, 0, 0};
+
+        *targetAcc = (Vector3f){0, 0, 0};
+
+        *targetJerk = (Vector3f){0, 0, 0};
+
+        *targetSnap = (Vector3f){0, 0, 0};
+
+        *targetHead = Vector3f{1, 0, 0};
+        *targetHead_dot = Vector3f{0, 0, 0};
+        *targetHead_ddot = Vector3f{0, 0, 0};
+    }
+}
+
 // 纯定点000轨迹
 void Trajectory_Generate_POS(
     Vector3f *targetPos,
