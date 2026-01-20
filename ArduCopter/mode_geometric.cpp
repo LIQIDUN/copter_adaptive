@@ -450,7 +450,7 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     Vector3f x_axis_desired;
     Vector3f y_axis_desired;
     Vector3f z_axis_desired;
-    Vector3f x_c_des;
+
     Vector3f eR, ew, M;
 
     Vector3f e3 = {0, 0, 1};
@@ -523,6 +523,7 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     }
     q.rotation_matrix(R); // transforming the quaternion q to rotation matrix R
 
+    Matrix3f R_body2World = R;
     Vector3f targetHead_norm = targetHead.normalized();
     float input_Pitch_rad = asinf(-targetHead_norm[2]); // NED系：机头向上，z 为负。仰角为正
     tilt_angle = input_Pitch_rad;
@@ -534,7 +535,7 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     //                                  Vector3f(0, 1, 0),
     //                                  Vector3f(-sinPitch, 0, cosPitch));
 
-    Matrix3f R_motor2world = R * R_motor2body; // 旋翼坐标系转机体坐标系
+    Matrix3f R_motor2world = R_body2World * R_motor2body; // 旋翼坐标系转机体坐标系
 
     thrust_axis = R_motor2world * e3; // 计算推力方向 b3
 
@@ -544,7 +545,7 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
 
     // Calculate axis [zB_des]
     // z_axis_desired = R_motor2body * (-target_force);
-    Matrix3f R_body2world_des;
+    // Matrix3f R_body2world_des;
     Matrix3f R_motor2world_des;
     Vector3f motor2world_des_x;
     Vector3f motor2world_des_y;
@@ -566,22 +567,23 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     R_motor2world_des.c = motor2world_des_z;
     R_motor2world_des.transpose();
 
-    R_body2world_des = R_motor2world_des * R_motor2body.transposed();
+    // R_body2world_des = R_motor2world_des * R_motor2body.transposed();
 
     // [eR]
     // Matrix3f Rdes(Vector3f(x_axis_desired.x, y_axis_desired.x, z_axis_desired.x),
     //               Vector3f(x_axis_desired.y, y_axis_desired.y, z_axis_desired.y),
     //               Vector3f(x_axis_desired.z, y_axis_desired.z, z_axis_desired.z));
-    Matrix3f Rdes = R_body2world_des;
+    Matrix3f Rdes = R_motor2world_des;
 
     // [xC_des]
-    x_c_des = targetHead;
+    Vector3f x_c_des = targetHead;
     Vector3f x_c_des_dot = targetHead_dot;   // time derivative of x_c_des
     Vector3f x_c_des_ddot = targetHead_ddot; // time derivative of x_c_des_dot
-    Matrix3f eRM = (Rdes.transposed() * R - R.transposed() * Rdes) / 2;
+    Matrix3f eRM = (R_motor2world_des.transposed() * R_motor2world - R_motor2world.transposed() * R_motor2world_des) / 2;
     eR = veeOperator(eRM);
 
-    Vector3f Omega = AP::ahrs().get_gyro();
+    Vector3f Omega_in_body = AP::ahrs().get_gyro();
+    Vector3f Omega_in_motor = R_motor2body.transposed() * Omega_in_body;
 
     // compute Omegad: this comes from Appendix F in https://arxiv.org/pdf/1003.2005v3.pdf
     Vector3f a_error; // error on acceleration
@@ -593,8 +595,8 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     target_force_dot.y = -g.GeoCtrl_Kpy * v_error.y - g.GeoCtrl_Kvy * a_error.y + kg_vehicleMass * targetJerk.y;
     target_force_dot.z = -g.GeoCtrl_Kpz * v_error.z - g.GeoCtrl_Kvz * a_error.z + kg_vehicleMass * targetJerk.z;
 
-    //推力轴方向b3 = R_motor2world * e3
-    Vector3f b3_dot = R_motor2world * hatOperator(Omega) * e3;
+    // 推力轴方向b3 = R_motor2world * e3
+    Vector3f b3_dot = R_motor2world * hatOperator(Omega_in_motor) * e3;
 
     float target_thrust_dot = -target_force_dot * R_motor2world.colz() - target_force * b3_dot;
 
@@ -664,20 +666,23 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     Rd_ddot.c = b3c_ddot;
     Rd_ddot.transpose();
 
-    Vector3f Omegad = veeOperator(Rdes.transposed() * Rd_dot);
-    Vector3f Omegad_dot = veeOperator(Rdes.transposed() * Rd_ddot - hatOperator(Omegad) * hatOperator(Omegad));
+    // in motor frame
+    Vector3f Omegad = veeOperator(R_motor2world_des.transposed() * Rd_dot);
+    Vector3f Omegad_dot = veeOperator(R_motor2world_des.transposed() * Rd_ddot - hatOperator(Omegad) * hatOperator(Omegad));
 
     // eomega (angular velocity error)
-    ew = Omega - R.transposed() * Rdes * Omegad;
+    ew = Omega_in_motor - R_motor2world.transposed() * R_motor2world_des * Omegad;
+
+    Matrix3f J_motor_frame;
+    J_motor_frame = R_motor2body.transposed() * J * R_motor2body; // 转到旋翼坐标系下的惯量矩阵
 
     // Compute the moment
     M.x = -g.GeoCtrl_KRx * eR.x - g.GeoCtrl_KOx * ew.x;
     M.y = -g.GeoCtrl_KRy * eR.y - g.GeoCtrl_KOy * ew.y;
     M.z = -g.GeoCtrl_KRz * eR.z - g.GeoCtrl_KOz * ew.z;
-    M = M - J * (hatOperator(Omega) * R.transposed() * Rdes * Omegad - R.transposed() * Rdes * Omegad_dot);
-    Vector3f momentAdd = Omega % (J * Omega); // J is the inertia matrix
+    M = M - J_motor_frame * (hatOperator(Omega_in_motor) * R_motor2world.transposed() * R_motor2world_des * Omegad - R_motor2world.transposed() * R_motor2world_des * Omegad_dot);
+    Vector3f momentAdd = Omega_in_motor % (J_motor_frame * Omega_in_motor); // J is the inertia matrix
     M = M + momentAdd;
-    M = R_motor2body.transposed() * M; // 转到机体坐标系下的力矩
 
     VectorN<float, 5> thrustMomentCmd;
     thrustMomentCmd[0] = target_thrust;

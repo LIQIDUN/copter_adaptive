@@ -996,23 +996,62 @@ void Trajectory_Generate_POS_TILT_AUTO(float timeInThisRun,
         *targetJerk = (Vector3f){0, 0, 0};
 
         *targetSnap = (Vector3f){0, 0, 0};
-        float max_tilt = 30;
+        float max_tilt = 20;
         max_tilt = max_tilt * M_PI / 180;
-        if (timeInThisRun - time_takeoff < time_in_pos / 2)
-        {
+        // if (timeInThisRun - time_takeoff < time_in_pos / 2)
+        // {
 
-            float angle_pitch = cosf((timeInThisRun - time_takeoff) * 2 * (max_tilt / time_in_pos));
-            *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
-            *targetHead_dot = Vector3f{0, 0, 0};
-            *targetHead_ddot = Vector3f{0, 0, 0};
+        //     float angle_pitch = cosf((timeInThisRun - time_takeoff) * 2 * (max_tilt / time_in_pos));
+        //     *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
+        //     *targetHead_dot = Vector3f{0, 0, 0};
+        //     *targetHead_ddot = Vector3f{0, 0, 0};
+        // }
+        // else
+        // {
+        //     float angle_pitch = cosf(max_tilt - (timeInThisRun - time_takeoff - time_in_pos / 2) * 2 * (max_tilt / time_in_pos));
+        //     *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
+        //     *targetHead_dot = Vector3f{0, 0, 0};
+        //     *targetHead_ddot = Vector3f{0, 0, 0};
+        // }
+        float slope = 2.0f * (max_tilt / time_in_pos); // 角速度 (rad/s)
+        
+        float current_theta = 0.0f;
+        float current_rate = 0.0f; // d(theta)/dt
+
+        float dt_run = timeInThisRun - time_takeoff;
+
+        if (dt_run < time_in_pos / 2)
+        {
+            // 上升段
+            current_theta = dt_run * slope;
+            current_rate = slope;
         }
         else
         {
-            float angle_pitch = cosf(max_tilt - (timeInThisRun - time_takeoff - time_in_pos / 2) * 2 * (max_tilt / time_in_pos));
-            *targetHead = Vector3f{angle_pitch, 0, -sqrtf(1 - angle_pitch * angle_pitch)};
-            *targetHead_dot = Vector3f{0, 0, 0};
-            *targetHead_ddot = Vector3f{0, 0, 0};
+            // 下降段
+            float dt_down = dt_run - time_in_pos / 2;
+            current_theta = max_tilt - dt_down * slope;
+            current_rate = -slope;
         }
+
+        // 计算三角函数
+        float c = cosf(current_theta);
+        float s = sinf(current_theta);
+
+        // 1. 机头指向向量 (假设 Pitch 为正代表抬头)
+        // targetHead = [cos, 0, -sin] (NED系)
+        *targetHead = Vector3f{c, 0, -s};
+
+        // 2. 一阶导数 (角速度 x 向量)
+        // d(cos)/dt = -sin * rate
+        // d(-sin)/dt = -cos * rate
+        *targetHead_dot = Vector3f{-s * current_rate, 0, -c * current_rate};
+
+        // 3. 二阶导数 (角加速度 + 向心项)
+        // 假设角加速度为0 (线性变化)，只保留向心项: -rate^2 * vector
+        float rate_sq = current_rate * current_rate;
+        *targetHead_ddot = Vector3f{-c * rate_sq, 0, s * rate_sq};
+
     }
     else if (timeInThisRun > time_takeoff + time_in_pos && timeInThisRun <= time_takeoff + time_in_pos + time_land)
     {
