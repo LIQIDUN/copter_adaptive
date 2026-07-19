@@ -390,7 +390,7 @@ void ModeGeometric::run()
     // 注意：Kp、Kd 的正负极性视你的 Gazebo SDF 设定而定。
     // 如果你在仿真中发现姿态发散，直接把这两个增益的符号反过来即可。
     float Kp_pitch_att = 1500.0f; // 俯仰姿态 P
-    float Kd_pitch_att = 200.0f;  // 俯仰角速度 D
+    float Kd_pitch_att = 400.0f;  // 俯仰角速度 D
     float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
 
     // 横滚永远目标为 0 (机翼水平)
@@ -556,6 +556,11 @@ void ModeGeometric::run()
                        AP_HAL::micros64(),
                        (in_horizon_flight),
                        (in_trj_flight));
+    AP::logger().Write("FUZZ", "TimeUS,airspeed,mc_coeff,fw_coeff", "Qfff",
+                       AP_HAL::micros64(),
+                       (current_airspeed),
+                       (mc_coeff),
+                       (fw_coeff));
     last_time_in_geometric = now_time_in_geometric;
 }
 
