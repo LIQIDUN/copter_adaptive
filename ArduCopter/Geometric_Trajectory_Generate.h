@@ -170,3 +170,19 @@ float polyDiffEval(float polyDiffCoef[], float x, int N);
 float polyDiff2Eval(float polyDiffDiffCoef[], float x, int N);
 float polyDiff3Eval(float polyDiffDiffCoef[], float x, int N);
 float polyDiff4Eval(float polyDiffDiffCoef[], float x, int N);
+
+
+// 1. 倾转角调度函数
+float calculate_tilt_angle(float progress);
+
+// 2. 混合控制权重分配函数 (模糊逻辑)
+void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff);
+
+// 3. 前飞过渡轨迹生成函数
+void Trajectory_Generate_FW_TRANSITION(float timeInThisRun, float targetAlt,
+                                       float takeofftime, float transition_time, float forward_vel,
+                                       bool *in_flight, Vector3f *targetPos,
+                                       Vector3f *targetVel, Vector3f *targetAcc,
+                                       Vector3f *targetJerk, Vector3f *targetSnap,
+                                       Vector3f *targetHead, Vector3f *targetHead_dot,
+                                       Vector3f *targetHead_ddot);

@@ -2,10 +2,10 @@
 
 # --- 1. 环境与路径配置 ---
 # 自动设置 ROS 环境变量
-SOURCE_ROS="source /opt/ros/noetic/setup.bash && source ~/ros/ros_quadtilt/devel/setup.bash"
+# SOURCE_ROS="source /opt/ros/noetic/setup.bash && source ~/ros/ros_quadtilt/devel/setup.bash"
 
 # 自动设置 Gazebo 模型路径 (确保 Gazebo 能找到飞机模型和世界文件)
-GAZEBO_MODELS="export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:/home/liqidun/github/ardupilot_gazebo/models:/home/liqidun/github/ArduPilot_QuadTilt/Tools/autotest/models"
+GAZEBO_MODELS="export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:/home/liqidun/github/ardupilot_gazebo/models:/home/liqidun/github/copter_adaptive/Tools/autotest/models"
 
 # 默认世界文件路径 (根据你之前的报错，这里进入包含 quadtilt.world 的目录)
 WORLD_DIR="/home/liqidun/github/ardupilot_gazebo/worlds" # 或者你存放 .world 的实际目录
@@ -29,7 +29,7 @@ pkill -9 -f "sim_vehicle.py"
 # [窗口 1] ArduPilot SITL: 仿真固件和 MAVProxy
 # 这里增加了 --console --map 参数
 terminator -u --geometry=800x400+0+250 -T "ArduPilot SITL" -x bash -c \
-"cd /home/liqidun/github/ArduPilot_QuadTilt/Tools/autotest/ && python3 sim_vehicle.py -v ArduCopter -f gazebo-iris --console --map; exec bash" &
+"cd /home/liqidun/github/copter_adaptive/Tools/autotest/ && python3 sim_vehicle.py -v ArduCopter -f gazebo-iris --console --map; exec bash" &
 sleep 3
 
 # [窗口 2] Gazebo: 物理引擎 (解决找不到 world 的报错)

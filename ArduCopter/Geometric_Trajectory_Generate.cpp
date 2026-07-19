@@ -1181,3 +1181,103 @@ float polyDiff4Eval(float polyCoef[], float x, int N)
     }
     return result;
 }
+
+// 实现从起飞、倾转加速到纯固定翼前飞的完整轨迹
+void Trajectory_Generate_FW_TRANSITION(float timeInThisRun, float targetAlt, float takeofftime, float transition_time, float forward_vel, bool *in_flight, Vector3f *targetPos, Vector3f *targetVel, Vector3f *targetAcc, Vector3f *targetJerk, Vector3f *targetSnap, Vector3f *targetHead, Vector3f *targetHead_dot, Vector3f *targetHead_ddot)
+{
+    // 阶段 1: 垂直起飞到目标高度
+    if (timeInThisRun <= takeofftime)
+    {
+        *in_flight = 0; 
+        Vector2f targetYaw = {1, 0}; Vector2f targetYaw_dot = {0, 0}; Vector2f targetYaw_ddot = {0, 0};
+        Trajectory_Generate_TAKEOFF_TO_ALT_AUTO(timeInThisRun, targetAlt, takeofftime,
+                                                targetPos, targetVel, targetAcc, targetJerk, targetSnap,
+                                                &targetYaw, &targetYaw_dot, &targetYaw_ddot);
+        *targetHead = Vector3f{1, 0, 0};
+        *targetHead_dot = Vector3f{0, 0, 0};
+        *targetHead_ddot = Vector3f{0, 0, 0};
+    }
+    // 阶段 2: 倾转过渡段
+    else if (timeInThisRun <= takeofftime + transition_time)
+    {
+        *in_flight = 1;
+        float dt = timeInThisRun - takeofftime;
+        float progress = dt / transition_time; // 进度 0 到 1
+        
+        // 【核心修改】：调用独立函数获取当前倾转角
+        float tilt = calculate_tilt_angle(progress);
+        
+        float cur_vel = progress * forward_vel;
+        float cur_pos = 0.5f * forward_vel * (dt * dt / transition_time); 
+        
+        *targetPos = Vector3f{cur_pos, 0, -targetAlt};
+        *targetVel = Vector3f{cur_vel, 0, 0};
+        *targetAcc = Vector3f{forward_vel / transition_time, 0, 0};
+        *targetJerk = Vector3f{0, 0, 0};
+        *targetSnap = Vector3f{0, 0, 0};
+
+        *targetHead = Vector3f{cosf(tilt), 0, -sinf(tilt)};
+        // 粗略导数（如果改为非线性，这里最好用数值差分或写出解析导数）
+        float tilt_rate = (calculate_tilt_angle(progress + 0.01f) - tilt) / 0.01f / transition_time;
+        *targetHead_dot = Vector3f{-sinf(tilt)*tilt_rate, 0, -cosf(tilt)*tilt_rate};
+        *targetHead_ddot = Vector3f{0, 0, 0}; 
+    }
+    // 阶段 3: 固定翼前飞
+    else
+    {
+        *in_flight = 1;
+        float dt_fw = timeInThisRun - (takeofftime + transition_time);
+        float trans_dist = 0.5f * forward_vel * transition_time;
+
+        *targetPos = Vector3f{trans_dist + forward_vel * dt_fw, 0, -targetAlt};
+        *targetVel = Vector3f{forward_vel, 0, 0};
+        *targetAcc = Vector3f{0, 0, 0};
+        *targetJerk = Vector3f{0, 0, 0};
+        *targetSnap = Vector3f{0, 0, 0};
+
+        *targetHead = Vector3f{0, 0, -1};
+        *targetHead_dot = Vector3f{0, 0, 0};
+        *targetHead_ddot = Vector3f{0, 0, 0};
+    }
+}
+
+// ====================================================================
+// 1. 倾转角调度函数 (Tilt Angle Profile)
+// 输入: progress (过渡进度 0.0 到 1.0)
+// 输出: 当前目标倾转角 (弧度，0 到 PI/2)
+// ====================================================================
+float calculate_tilt_angle(float progress)
+{
+    float max_tilt = M_PI / 2.0f; // 最大倾转角 90 度
+    
+    // 占位：纯粹的线性关系
+    // 你后续可以在这里改为 S型曲线 (Sigmoid)、多项式平滑等关系
+    return progress * max_tilt; 
+}
+
+// ====================================================================
+// 2. 混合控制权重分配函数 (Fuzzy Blending Logic)
+// 输入: airspeed (当前空速，单位 m/s)
+// 输出: mc_coeff (多旋翼控制权重 0~1), fw_coeff (固定翼控制权重 0~1)
+// ====================================================================
+void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
+{
+    // 假设：1m/s 以下纯多旋翼，12m/s 以上纯固定翼
+    const float min_airspeed = 1.0f;  
+    const float max_airspeed = 12.0f; 
+    
+    if (airspeed <= min_airspeed) {
+        mc_coeff = 1.0f;
+        fw_coeff = 0.0f;
+    } 
+    else if (airspeed >= max_airspeed) {
+        mc_coeff = 0.0f;
+        fw_coeff = 1.0f;
+    } 
+    else {
+        // 占位：简单的线性模糊过渡
+        // 你后续可以改为高斯型、梯形等模糊隶属度函数
+        fw_coeff = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+        mc_coeff = 1.0f - fw_coeff;
+    }
+}

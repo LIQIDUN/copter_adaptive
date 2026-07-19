@@ -238,10 +238,26 @@ void ModeGeometric::run()
         Trajectory_Generate_POS_TILT_AUTO(timeInThisRun, targetAlt, take_off_time, T_circle, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetHead, &targetHead_dot, &targetHead_ddot);
         break;
     }
+    case 10: // 固定翼前飞过渡测试 (动态倾转)
+    {
+        float transition_time = 30.0f;
+        const float targetAlt = g.GeoCtrl_ALT;
+        float forward_vel = g.GeoCtrl_VEL;
+        in_horizon_flight = false;
+        Trajectory_Generate_FW_TRANSITION(timeInThisRun, targetAlt, take_off_time, transition_time, forward_vel, &in_horizon_flight, &targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetHead, &targetHead_dot, &targetHead_ddot);
+        break;
+    }
     default:
         Trajectory_Generate_POS(&targetPos, &targetVel, &targetAcc, &targetJerk, &targetSnap, &targetYaw, &targetYaw_dot, &targetYaw_ddot);
         gcs().send_text(MAV_SEVERITY_CRITICAL, "VOID Trajectory NUM");
         break;
+    }
+
+    // fallback: 非倾转轨迹不设置 targetHead，默认机头指向北(NED x轴)
+    if (targetHead.is_zero()) {
+        targetHead = Vector3f{1, 0, 0};
+        targetHead_dot = Vector3f{0, 0, 0};
+        targetHead_ddot = Vector3f{0, 0, 0};
     }
 
     // initialize for landing mode
@@ -286,8 +302,118 @@ void ModeGeometric::run()
         targetPos = targetPos + enterpos;
     }
 
-    // 关闭自适应
-    thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, targetHead, targetHead_dot, targetHead_ddot);
+
+    // ==========================================================
+    // 数学解耦 targetHead：垂直方向代表倾转，水平方向代表航向
+    // ==========================================================
+    // 1. 提取倾转角 (NED坐标系中Z轴朝下，由前飞轨迹 targetHead.z = -sin(tilt) 得出，故 tilt = asin(-Z))
+    float target_tilt = asinf(constrain_float(-targetHead.z, -1.0f, 1.0f));
+
+    // 2. 提取纯水平航向 (强制投影到 XY 平面，避免 targetHead 朝下引发偏航发散奇异点)
+    Vector3f geoHead = Vector3f(targetHead.x, targetHead.y, 0.0f);
+    if (geoHead.is_zero()) {
+        geoHead = Vector3f(1.0f, 0.0f, 0.0f); // 如果完全垂直，默认给个正北方向防止报错
+    } else {
+        geoHead.normalize();
+    }
+    
+    // 导数也同步水平化
+    Vector3f geoHead_dot = Vector3f(targetHead_dot.x, targetHead_dot.y, 0.0f);
+    Vector3f geoHead_ddot = Vector3f(targetHead_ddot.x, targetHead_ddot.y, 0.0f);
+
+    
+    // ==========================================================
+    // 几何控制计算与多旋翼/固定翼模糊分配逻辑
+    // ==========================================================
+    // 3. 将纯水平的期望航向喂给几何控制器，此时它只负责安全地进行水平姿态维稳
+    thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, geoHead, geoHead_dot, geoHead_ddot);
+
+    // 4. 将解耦出的倾转角直接塞给控制指令的第 5 位
+    thrustAndMomentCmd[4] = target_tilt;
+
+    // 获取当前状态（利用地面速度近似空速）
+    Vector3f statePos, stateVel;
+    if (!ahrs.get_relative_position_NED_origin(statePos)) {
+        statePos.zero();
+    }
+    if (!ahrs.get_velocity_NED(stateVel)) {
+        stateVel.zero();
+    }
+    float current_airspeed = stateVel.length();
+
+    // 通过外部函数获取控制输出系数
+    float mc_coeff = 1.0f; // 多旋翼系数
+    float fw_coeff = 0.0f; // 固定翼系数
+    calculate_blend_coefficients(current_airspeed, mc_coeff, fw_coeff);
+
+    // --- 1. 多旋翼扭矩叠加衰减 ---
+    thrustAndMomentCmd[1] *= mc_coeff;
+    thrustAndMomentCmd[2] *= mc_coeff;
+    thrustAndMomentCmd[3] *= mc_coeff;
+
+    // --- 2. 【核心修复】：解决严重掉高问题 ---
+    // 原始推力是由几何控制器算出来的抗重力推力 (geo_thrust)
+    float geo_thrust = thrustAndMomentCmd[0];
+    
+    // 补偿物理倾转带来的垂直升力损失：需要推力 = 期望垂直力 / cos(tilt)
+    float cos_tilt = cosf(target_tilt);
+    if (cos_tilt < 0.2f) cos_tilt = 0.2f; // 限制最大补偿为5倍，防止贴近90度时推力爆炸
+    float lift_thrust = geo_thrust / cos_tilt;
+
+    // 计算前向加速需要的额外推进力
+    float err_vx = targetVel.x - stateVel.x;
+    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f;
+    fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
+
+    // 终极推力融合策略：取两者中的最大值！
+    // 几何控制器的Z轴PID自带对机翼升力的感知(机翼有升力了它算出的geo_thrust就会变小)。
+    // 这里绝对不能用 mc_coeff 去衰减 lift_thrust，否则必掉高！
+    thrustAndMomentCmd[0] = fmaxf(lift_thrust, fw_base_thrust * fw_coeff);
+
+    // --- 2. 固定翼自稳与定高控制 (Auto-Level & Alt Hold) ---
+    // 获取当前实际姿态与角速度
+    float current_roll = ahrs.get_roll();
+    float current_pitch = ahrs.get_pitch();
+    Vector3f gyro = ahrs.get_gyro(); // gyro.x 是横滚角速度，gyro.y 是俯仰角速度
+
+    // (1) 高度环：计算目标俯仰角 (Target Pitch)
+    // NED 坐标系下 Z 轴朝下。如果 statePos.z > targetPos.z，说明飞机偏低，err_z 为正
+    float err_z = statePos.z - targetPos.z;
+    float err_vz = stateVel.z - targetVel.z;
+    
+    float Kp_alt = 0.08f;  // 高度误差 -> 俯仰角的比例增益
+    float Kd_alt = 0.02f;
+    // 飞机偏低 (err_z > 0) 时，需要正的 Pitch (抬头)。限制最大仰角为 ±15度 (约0.26 rad)
+    float target_pitch = constrain_float(Kp_alt * err_z + Kd_alt * err_vz, -0.26f, 0.26f);
+
+    // (2) 姿态环：计算舵面指令
+    // 注意：Kp、Kd 的正负极性视你的 Gazebo SDF 设定而定。
+    // 如果你在仿真中发现姿态发散，直接把这两个增益的符号反过来即可。
+    float Kp_pitch_att = 1500.0f; // 俯仰姿态 P
+    float Kd_pitch_att = 200.0f;  // 俯仰角速度 D
+    float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
+
+    // 横滚永远目标为 0 (机翼水平)
+    float Kp_roll_att = -1000.0f;  // 横滚姿态 P
+    float Kd_roll_att = -100.0f;   // 横滚角速度 D
+    float roll_cmd = constrain_float(Kp_roll_att * (0.0f - current_roll) + Kd_roll_att * (0.0f - gyro.x), -400.0f, 400.0f);
+
+    // (3) 根据固定翼系数 (fw_coeff) 逐渐释放舵面控制权
+    int16_t weighted_pitch = (int16_t)(pitch_cmd * fw_coeff);
+    int16_t weighted_roll  = (int16_t)(roll_cmd * fw_coeff);
+
+    // 混控到 PWM (1500 为中立位置)
+    uint16_t pwm_elevon_left  = constrain_int16(1500 + weighted_pitch + weighted_roll, 1100, 1900);
+    uint16_t pwm_elevon_right = constrain_int16(1500 + weighted_pitch - weighted_roll, 1100, 1900);
+    uint16_t pwm_elevator     = constrain_int16(1500 + weighted_pitch, 1100, 1900);
+
+    // 发送 PWM 信号至对应 Gazebo 仿真的 8, 9, 10 通道
+    hal.rcout->write(8, pwm_elevon_left);
+    hal.rcout->write(9, pwm_elevon_right);
+    hal.rcout->write(10, pwm_elevator);
+    // ==========================================================
+    // ==========================================================
+    // ==========================================================
 
     // motor mixing
     VectorN<float, 4> motorPWM;
@@ -443,6 +569,11 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     Vector3f targetHead_dot,
     Vector3f targetHead_ddot)
 {
+    // NaN 保护：targetHead 为零向量会导致后续 normalize/cross 运算产生 NaN
+    if (targetHead.is_zero()) {
+        targetHead = Vector3f{1, 0, 0};
+    }
+
     Vector3f r_error;
     Vector3f v_error;
     Vector3f target_force;
@@ -495,6 +626,39 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     // Velocity Error (ev)
     v_error = stateVel - targetVel;
 
+
+    // =================================================================
+    // 【核心修复】：动态剥夺多旋翼对X方向的控制权，解决多旋翼无X控制的问题
+    // =================================================================
+    if (trajectory_num == 10) 
+    {
+        uint32_t now_time = AP_HAL::micros();
+        float time_in_trj = (float)0.000001f * (now_time - initial_time_in_geometric);
+        
+        // 计算当前是否已经超过了起飞悬停时间 (take_off_time)
+        float dt_after_takeoff = time_in_trj - g.GeoCtrl_TFT;
+        float x_weight = 1.0f;
+        
+        if (dt_after_takeoff > 0.0f) {
+            // 起飞阶段结束，开始倾转。在刚开始倾转的 3 秒内，平滑地将X轴控制权剥夺为0
+            // 这样机身就不会试图去强行抬头对抗倾转电机产生的前飞速度！
+            // x_weight = 1.0f - (dt_after_takeoff / 3.0f);
+            // x_weight = constrain_float(x_weight, 0.0f, 1.0f);
+            x_weight = 0.0f;
+        }
+
+        r_error.x *= x_weight; 
+        v_error.x *= x_weight; 
+        targetAcc.x *= x_weight;  
+        targetJerk.x *= x_weight; 
+        targetSnap.x *= x_weight; 
+
+        // 提示：我们故意没有对 r_error.y 和 v_error.y 进行衰减！
+        // 这就保证了Y方向(横向)控制在多旋翼和倾转过程中，永远百分之百生效！
+    }
+
+    // kg_vehicleMass = g.GeoCtrl_MAS; // weight for the real drone
+
     // kg_vehicleMass = g.GeoCtrl_MAS; // weight for the real drone
 
     // Target force
@@ -523,19 +687,26 @@ VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
     }
     q.rotation_matrix(R); // transforming the quaternion q to rotation matrix R
 
+    // Matrix3f R_body2World = R;
+    // Vector3f targetHead_norm = targetHead.normalized();
+    // float input_Pitch_rad = asinf(-targetHead_norm[2]); // NED系：机头向上，z 为负。仰角为正
+    // tilt_angle = input_Pitch_rad;
+    // Matrix3f R_motor2body;
+    // R_motor2body.from_euler(0, -tilt_angle, 0); // 旋翼坐标系转机体坐标系
+
+    // // gcs().send_text(MAV_SEVERITY_INFO, "cosPitch:%f,sinPitch:%f", cosPitch, sinPitch);
+    // // Matrix3f R_motor2body = Matrix3f(Vector3f(cosPitch, 0, sinPitch),
+    // //                                  Vector3f(0, 1, 0),
+    // //                                  Vector3f(-sinPitch, 0, cosPitch));
+
+    // Matrix3f R_motor2world = R_body2World * R_motor2body; // 旋翼坐标系转机体坐标系
     Matrix3f R_body2World = R;
-    Vector3f targetHead_norm = targetHead.normalized();
-    float input_Pitch_rad = asinf(-targetHead_norm[2]); // NED系：机头向上，z 为负。仰角为正
-    tilt_angle = input_Pitch_rad;
+    
+    // 强制禁用过驱动旋转，让几何控制器认为电机永远朝上
+    tilt_angle = 0.0f; 
     Matrix3f R_motor2body;
-    R_motor2body.from_euler(0, -tilt_angle, 0); // 旋翼坐标系转机体坐标系
-
-    // gcs().send_text(MAV_SEVERITY_INFO, "cosPitch:%f,sinPitch:%f", cosPitch, sinPitch);
-    // Matrix3f R_motor2body = Matrix3f(Vector3f(cosPitch, 0, sinPitch),
-    //                                  Vector3f(0, 1, 0),
-    //                                  Vector3f(-sinPitch, 0, cosPitch));
-
-    Matrix3f R_motor2world = R_body2World * R_motor2body; // 旋翼坐标系转机体坐标系
+    R_motor2body.identity(); // 单位阵
+    Matrix3f R_motor2world = R_body2World;
 
     thrust_axis = R_motor2world * e3; // 计算推力方向 b3
 
@@ -871,10 +1042,14 @@ VectorN<float, 4> ModeGeometric::motorMixSimple(VectorN<float, 5> thrustMomentCm
     quad_output_mat_fm2f2[2] = 0.5 / D;
     quad_output_mat_fm2f2[3] = -0.5 / D;
 
-    quad_output_mat_fm2f3[0] = 0.5 / (D * cosf(thrustMomentCmd[4]));
-    quad_output_mat_fm2f3[1] = -0.5 / (D * cosf(thrustMomentCmd[4]));
-    quad_output_mat_fm2f3[2] = 0.5 / (D * cosf(thrustMomentCmd[4]));
-    quad_output_mat_fm2f3[3] = -0.5 / (D * cosf(thrustMomentCmd[4]));
+    // quad_output_mat_fm2f3[0] = 0.5 / (D * cosf(thrustMomentCmd[4]));
+    // quad_output_mat_fm2f3[1] = -0.5 / (D * cosf(thrustMomentCmd[4]));
+    // quad_output_mat_fm2f3[2] = 0.5 / (D * cosf(thrustMomentCmd[4]));
+    // quad_output_mat_fm2f3[3] = -0.5 / (D * cosf(thrustMomentCmd[4]));
+    quad_output_mat_fm2f3[0] = 0.5 / D;
+    quad_output_mat_fm2f3[1] = -0.5 / D;
+    quad_output_mat_fm2f3[2] = 0.5 / D;
+    quad_output_mat_fm2f3[3] = -0.5 / D;
 
     quad_output_mat_fm2f4[0] = 0.25 / ct;
     quad_output_mat_fm2f4[1] = 0.25 / ct;
