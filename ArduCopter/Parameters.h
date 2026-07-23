@@ -424,6 +424,13 @@ public:
         k_param_GeoCtrl_TFT,
         k_param_GeoCtrl_DBV,
         k_param_GeoCtrl_ALT,
+        // fixed-wing control surface parameters
+        k_param_GeoCtrl_FKA = 297,
+        k_param_GeoCtrl_FDA,
+        k_param_GeoCtrl_FKP,
+        k_param_GeoCtrl_FDP,
+        k_param_GeoCtrl_FKR,
+        k_param_GeoCtrl_FDR,
         k_param_LandFlag,
         
         // the k_param_* space is 9-bits in size
@@ -536,6 +543,13 @@ public:
     AP_Float GeoCtrl_TFT;
     AP_Int8 GeoCtrl_DBV;
     AP_Float GeoCtrl_ALT;
+    // fixed-wing control surface parameters
+    AP_Float GeoCtrl_FKA;
+    AP_Float GeoCtrl_FDA;
+    AP_Float GeoCtrl_FKP;
+    AP_Float GeoCtrl_FDP;
+    AP_Float GeoCtrl_FKR;
+    AP_Float GeoCtrl_FDR;
     AP_Int8 LandFlag;
 
 #if MODE_THROW_ENABLED == ENABLED

@@ -381,21 +381,21 @@ void ModeGeometric::run()
     float err_z = statePos.z - targetPos.z;
     float err_vz = stateVel.z - targetVel.z;
     
-    float Kp_alt = 0.08f;  // 高度误差 -> 俯仰角的比例增益
-    float Kd_alt = 0.02f;
+    float Kp_alt = g.GeoCtrl_FKA;  // 高度误差 -> 俯仰角的比例增益
+    float Kd_alt = g.GeoCtrl_FDA;
     // 飞机偏低 (err_z > 0) 时，需要正的 Pitch (抬头)。限制最大仰角为 ±15度 (约0.26 rad)
     float target_pitch = constrain_float(Kp_alt * err_z + Kd_alt * err_vz, -0.26f, 0.26f);
 
     // (2) 姿态环：计算舵面指令
     // 注意：Kp、Kd 的正负极性视你的 Gazebo SDF 设定而定。
     // 如果你在仿真中发现姿态发散，直接把这两个增益的符号反过来即可。
-    float Kp_pitch_att = 1500.0f; // 俯仰姿态 P
-    float Kd_pitch_att = 400.0f;  // 俯仰角速度 D
+    float Kp_pitch_att = g.GeoCtrl_FKP; // 俯仰姿态 P
+    float Kd_pitch_att = g.GeoCtrl_FDP;  // 俯仰角速度 D
     float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
 
     // 横滚永远目标为 0 (机翼水平)
-    float Kp_roll_att = -1000.0f;  // 横滚姿态 P
-    float Kd_roll_att = -100.0f;   // 横滚角速度 D
+    float Kp_roll_att = g.GeoCtrl_FKR;  // 横滚姿态 P
+    float Kd_roll_att = g.GeoCtrl_FDR;   // 横滚角速度 D
     float roll_cmd = constrain_float(Kp_roll_att * (0.0f - current_roll) + Kd_roll_att * (0.0f - gyro.x), -400.0f, 400.0f);
 
     // (3) 根据固定翼系数 (fw_coeff) 逐渐释放舵面控制权

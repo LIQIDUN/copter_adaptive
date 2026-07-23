@@ -489,6 +489,31 @@
  #define GEOCTRL_BX_DEFAULT          0.4f
 #endif
 
+// fixed-wing control surface parameters (SITL)
+#ifndef GEOCTRL_FKA_DEFAULT
+ #define GEOCTRL_FKA_DEFAULT   0.08f
+#endif
+
+#ifndef GEOCTRL_FDA_DEFAULT
+ #define GEOCTRL_FDA_DEFAULT   0.04f
+#endif
+
+#ifndef GEOCTRL_FKP_DEFAULT
+ #define GEOCTRL_FKP_DEFAULT 500.0f
+#endif
+
+#ifndef GEOCTRL_FDP_DEFAULT
+ #define GEOCTRL_FDP_DEFAULT 400.0f
+#endif
+
+#ifndef GEOCTRL_FKR_DEFAULT
+ #define GEOCTRL_FKR_DEFAULT  -1000.0f
+#endif
+
+#ifndef GEOCTRL_FDR_DEFAULT
+ #define GEOCTRL_FDR_DEFAULT  -100.0f
+#endif
+
 #elif REAL_OR_SITL
 // default ACRL controller parameters (real)
 #ifndef GEOCTRL_KPX_DEFAULT
@@ -557,6 +582,31 @@
 
 #ifndef GEOCTRL_BX_DEFAULT
  #define GEOCTRL_BX_DEFAULT          0.4f
+#endif
+
+// fixed-wing control surface parameters (real)
+#ifndef GEOCTRL_FKA_DEFAULT
+ #define GEOCTRL_FKA_DEFAULT   0.08f
+#endif
+
+#ifndef GEOCTRL_FDA_DEFAULT
+ #define GEOCTRL_FDA_DEFAULT   0.04f
+#endif
+
+#ifndef GEOCTRL_FKP_DEFAULT
+ #define GEOCTRL_FKP_DEFAULT 500.0f
+#endif
+
+#ifndef GEOCTRL_FDP_DEFAULT
+ #define GEOCTRL_FDP_DEFAULT 400.0f
+#endif
+
+#ifndef GEOCTRL_FKR_DEFAULT
+ #define GEOCTRL_FKR_DEFAULT  -1000.0f
+#endif
+
+#ifndef GEOCTRL_FDR_DEFAULT
+ #define GEOCTRL_FDR_DEFAULT  -100.0f
 #endif
 
 #endif

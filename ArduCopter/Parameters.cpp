@@ -676,6 +676,56 @@ const AP_Param::Info Copter::var_info[] = {
     // @Range: 0 - 100
     // @User: Advanced
     GSCALAR(GeoCtrl_ALT, "GEOCTRL_ALT", GEOCTRL_ALT_DEFAULT),
+
+    // fixed-wing control surface parameters
+    // @Param: GEOCTRL_FKA
+    // @DisplayName: Fixed-wing altitude P gain
+    // @Description: Altitude error to pitch angle proportional gain for fixed-wing control
+    // @Units: none
+    // @Range: 0 1
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FKA, "GEOCTRL_FKA", GEOCTRL_FKA_DEFAULT),
+
+    // @Param: GEOCTRL_FDA
+    // @DisplayName: Fixed-wing altitude D gain
+    // @Description: Altitude error to pitch angle derivative gain for fixed-wing control
+    // @Units: none
+    // @Range: 0 1
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FDA, "GEOCTRL_FDA", GEOCTRL_FDA_DEFAULT),
+
+    // @Param: GEOCTRL_FKP
+    // @DisplayName: Fixed-wing pitch attitude P gain
+    // @Description: Pitch attitude proportional gain for fixed-wing elevon control
+    // @Units: none
+    // @Range: 0 5000
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FKP, "GEOCTRL_FKP", GEOCTRL_FKP_DEFAULT),
+
+    // @Param: GEOCTRL_FDP
+    // @DisplayName: Fixed-wing pitch rate D gain
+    // @Description: Pitch angular rate derivative gain for fixed-wing elevon control
+    // @Units: none
+    // @Range: 0 5000
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FDP, "GEOCTRL_FDP", GEOCTRL_FDP_DEFAULT),
+
+    // @Param: GEOCTRL_FKR
+    // @DisplayName: Fixed-wing roll attitude P gain
+    // @Description: Roll attitude proportional gain for fixed-wing elevon control
+    // @Units: none
+    // @Range: -5000 5000
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FKR, "GEOCTRL_FKR", GEOCTRL_FKR_DEFAULT),
+
+    // @Param: GEOCTRL_FDR
+    // @DisplayName: Fixed-wing roll rate D gain
+    // @Description: Roll angular rate derivative gain for fixed-wing elevon control
+    // @Units: none
+    // @Range: -5000 5000
+    // @User: Advanced
+    GSCALAR(GeoCtrl_FDR, "GEOCTRL_FDR", GEOCTRL_FDR_DEFAULT),
+
     // @Param: GEOCTRL_ADP
     // @DisplayName: kOz for geometric controller
     // @Description: kOz for geometric controller, which is the D term in rotational control for the z axis

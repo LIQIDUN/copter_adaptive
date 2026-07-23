@@ -1429,9 +1429,9 @@ float calculate_tilt_angle(float progress)
 // ====================================================================
 void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
 {
-    // 假设：1m/s 以下纯多旋翼，12m/s 以上纯固定翼
+    // 假设：8m/s 以下纯多旋翼，12m/s 以上纯固定翼
     const float min_airspeed = 1.0f;  
-    const float max_airspeed = 12.0f; 
+    const float max_airspeed = 17.0f; 
     
     if (airspeed <= min_airspeed) {
         mc_coeff = 1.0f;
