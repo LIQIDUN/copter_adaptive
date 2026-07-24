@@ -1602,6 +1602,7 @@ public:
 
     const float GRAVITY_MAGNITUDE = 9.8; // gravitational acceleration
     void GEO_land_detect(float initalt);
+    void run_fixed_wing_controller(float fw_coeff, const Vector3f &targetPos, const Vector3f &targetVel, const Vector3f &statePos, const Vector3f &stateVel);
 
     bool land_is_ok_flag = false;
     const float sin_time_T = 4;

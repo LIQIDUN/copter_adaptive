@@ -371,49 +371,7 @@ void ModeGeometric::run()
     thrustAndMomentCmd[0] = fmaxf(lift_thrust, fw_base_thrust * fw_coeff);
 
     // --- 2. 固定翼自稳与定高控制 (Auto-Level & Alt Hold) ---
-    // 获取当前实际姿态与角速度
-    float current_roll = ahrs.get_roll();
-    float current_pitch = ahrs.get_pitch();
-    Vector3f gyro = ahrs.get_gyro(); // gyro.x 是横滚角速度，gyro.y 是俯仰角速度
-
-    // (1) 高度环：计算目标俯仰角 (Target Pitch)
-    // NED 坐标系下 Z 轴朝下。如果 statePos.z > targetPos.z，说明飞机偏低，err_z 为正
-    float err_z = statePos.z - targetPos.z;
-    float err_vz = stateVel.z - targetVel.z;
-    
-    float Kp_alt = g.GeoCtrl_FKA;  // 高度误差 -> 俯仰角的比例增益
-    float Kd_alt = g.GeoCtrl_FDA;
-    // 飞机偏低 (err_z > 0) 时，需要正的 Pitch (抬头)。限制最大仰角为 ±15度 (约0.26 rad)
-    float target_pitch = constrain_float(Kp_alt * err_z + Kd_alt * err_vz, -0.26f, 0.26f);
-
-    // (2) 姿态环：计算舵面指令
-    // 注意：Kp、Kd 的正负极性视你的 Gazebo SDF 设定而定。
-    // 如果你在仿真中发现姿态发散，直接把这两个增益的符号反过来即可。
-    float Kp_pitch_att = g.GeoCtrl_FKP; // 俯仰姿态 P
-    float Kd_pitch_att = g.GeoCtrl_FDP;  // 俯仰角速度 D
-    float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
-
-    // 横滚永远目标为 0 (机翼水平)
-    float Kp_roll_att = g.GeoCtrl_FKR;  // 横滚姿态 P
-    float Kd_roll_att = g.GeoCtrl_FDR;   // 横滚角速度 D
-    float roll_cmd = constrain_float(Kp_roll_att * (0.0f - current_roll) + Kd_roll_att * (0.0f - gyro.x), -400.0f, 400.0f);
-
-    // (3) 根据固定翼系数 (fw_coeff) 逐渐释放舵面控制权
-    int16_t weighted_pitch = (int16_t)(pitch_cmd * fw_coeff);
-    int16_t weighted_roll  = (int16_t)(roll_cmd * fw_coeff);
-
-    // 混控到 PWM (1500 为中立位置)
-    uint16_t pwm_elevon_left  = constrain_int16(1500 + weighted_pitch + weighted_roll, 1100, 1900);
-    uint16_t pwm_elevon_right = constrain_int16(1500 + weighted_pitch - weighted_roll, 1100, 1900);
-    uint16_t pwm_elevator     = constrain_int16(1500 + weighted_pitch, 1100, 1900);
-
-    // 发送 PWM 信号至对应 Gazebo 仿真的 8, 9, 10 通道
-    hal.rcout->write(8, pwm_elevon_left);
-    hal.rcout->write(9, pwm_elevon_right);
-    hal.rcout->write(10, pwm_elevator);
-    // ==========================================================
-    // ==========================================================
-    // ==========================================================
+    run_fixed_wing_controller(fw_coeff, targetPos, targetVel, statePos, stateVel);
 
     // motor mixing
     VectorN<float, 4> motorPWM;
@@ -562,6 +520,55 @@ void ModeGeometric::run()
                        (mc_coeff),
                        (fw_coeff));
     last_time_in_geometric = now_time_in_geometric;
+}
+
+// 固定翼自稳与定高控制 (Auto-Level & Alt Hold)
+// 由 run() 调用，在固定翼过渡阶段提供舵面姿态稳定
+void ModeGeometric::run_fixed_wing_controller(
+    float fw_coeff,
+    const Vector3f &targetPos,
+    const Vector3f &targetVel,
+    const Vector3f &statePos,
+    const Vector3f &stateVel)
+{
+    // 获取当前实际姿态与角速度
+    float current_roll = ahrs.get_roll();
+    float current_pitch = ahrs.get_pitch();
+    Vector3f gyro = ahrs.get_gyro(); // gyro.x 是横滚角速度，gyro.y 是俯仰角速度
+
+    // (1) 高度环：计算目标俯仰角 (Target Pitch)
+    // NED 坐标系下 Z 轴朝下。如果 statePos.z > targetPos.z，说明飞机偏低，err_z 为正
+    float err_z = statePos.z - targetPos.z;
+    float err_vz = stateVel.z - targetVel.z;
+
+    float Kp_alt = g.GeoCtrl_FKA;  // 高度误差 -> 俯仰角的比例增益
+    float Kd_alt = g.GeoCtrl_FDA;
+    // 飞机偏低 (err_z > 0) 时，需要正的 Pitch (抬头)。限制最大仰角为 ±15度 (约0.26 rad)
+    float target_pitch = constrain_float(Kp_alt * err_z + Kd_alt * err_vz, -0.26f, 0.26f);
+
+    // (2) 姿态环：计算舵面指令
+    float Kp_pitch_att = g.GeoCtrl_FKP; // 俯仰姿态 P
+    float Kd_pitch_att = g.GeoCtrl_FDP; // 俯仰角速度 D
+    float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
+
+    // 横滚永远目标为 0 (机翼水平)
+    float Kp_roll_att = g.GeoCtrl_FKR;  // 横滚姿态 P
+    float Kd_roll_att = g.GeoCtrl_FDR;   // 横滚角速度 D
+    float roll_cmd = constrain_float(Kp_roll_att * (0.0f - current_roll) + Kd_roll_att * (0.0f - gyro.x), -400.0f, 400.0f);
+
+    // (3) 根据固定翼系数 (fw_coeff) 逐渐释放舵面控制权
+    int16_t weighted_pitch = (int16_t)(pitch_cmd * fw_coeff);
+    int16_t weighted_roll  = (int16_t)(roll_cmd * fw_coeff);
+
+    // 混控到 PWM (1500 为中立位置)
+    uint16_t pwm_elevon_left  = constrain_int16(1500 + weighted_pitch + weighted_roll, 1100, 1900);
+    uint16_t pwm_elevon_right = constrain_int16(1500 + weighted_pitch - weighted_roll, 1100, 1900);
+    uint16_t pwm_elevator     = constrain_int16(1500 + weighted_pitch, 1100, 1900);
+
+    // 发送 PWM 信号
+    hal.rcout->write(8, pwm_elevon_left);
+    hal.rcout->write(9, pwm_elevon_right);
+    hal.rcout->write(10, pwm_elevator);
 }
 
 VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
