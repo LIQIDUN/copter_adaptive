@@ -296,87 +296,65 @@ void ModeGeometric::run()
         }
     }
 
+    
     // 从进入geo模式的位置开始跟踪
-    if (getposAvailable)
-    {
+    if (getposAvailable) {
         targetPos = targetPos + enterpos;
     }
 
-
-    // ==========================================================
-    // 数学解耦 targetHead：垂直方向代表倾转，水平方向代表航向
-    // ==========================================================
-    // 1. 提取倾转角 (NED坐标系中Z轴朝下，由前飞轨迹 targetHead.z = -sin(tilt) 得出，故 tilt = asin(-Z))
-    float target_tilt = asinf(constrain_float(-targetHead.z, -1.0f, 1.0f));
-
-    // 2. 提取纯水平航向 (强制投影到 XY 平面，避免 targetHead 朝下引发偏航发散奇异点)
-    Vector3f geoHead = Vector3f(targetHead.x, targetHead.y, 0.0f);
-    if (geoHead.is_zero()) {
-        geoHead = Vector3f(1.0f, 0.0f, 0.0f); // 如果完全垂直，默认给个正北方向防止报错
-    } else {
-        geoHead.normalize();
-    }
+    // 获取当前状态
+    Vector3f statePos, stateVel;
+    if (!ahrs.get_relative_position_NED_origin(statePos)) statePos.zero();
+    if (!ahrs.get_velocity_NED(stateVel)) stateVel.zero();
     
-    // 导数也同步水平化
+    // 计算当前的融合权重
+    float mc_coeff = 1.0f, fw_coeff = 0.0f;
+    calculate_blend_coefficients(stateVel.length(), mc_coeff, fw_coeff);
+
+    // ==========================================================
+    // 第一步：纯多旋翼控制器 (几何控制)
+    // ==========================================================
+    // 强制机头水平，让几何控制器只管机身水平姿态和定高
+    Vector3f geoHead = Vector3f(targetHead.x, targetHead.y, 0.0f);
+    if (geoHead.is_zero()) geoHead = Vector3f(1.0f, 0.0f, 0.0f);
+    geoHead.normalize();
     Vector3f geoHead_dot = Vector3f(targetHead_dot.x, targetHead_dot.y, 0.0f);
     Vector3f geoHead_ddot = Vector3f(targetHead_ddot.x, targetHead_ddot.y, 0.0f);
 
-    
+    VectorN<float, 5> mc_cmd = ModeGeometric::GeometricTrajectoryController(
+        targetPos, targetVel, targetAcc, targetJerk, targetSnap, 
+        geoHead, geoHead_dot, geoHead_ddot);
+
     // ==========================================================
-    // 几何控制计算与多旋翼/固定翼模糊分配逻辑
+    // 第二步：纯固定翼控制器 (推力 + 舵面)
     // ==========================================================
-    // 3. 将纯水平的期望航向喂给几何控制器，此时它只负责安全地进行水平姿态维稳
-    thrustAndMomentCmd = ModeGeometric::GeometricTrajectoryController(targetPos, targetVel, targetAcc, targetJerk, targetSnap, geoHead, geoHead_dot, geoHead_ddot);
-
-    // 4. 将解耦出的倾转角直接塞给控制指令的第 5 位
-    thrustAndMomentCmd[4] = target_tilt;
-
-    // 获取当前状态（利用地面速度近似空速）
-    Vector3f statePos, stateVel;
-    if (!ahrs.get_relative_position_NED_origin(statePos)) {
-        statePos.zero();
-    }
-    if (!ahrs.get_velocity_NED(stateVel)) {
-        stateVel.zero();
-    }
-    float current_airspeed = stateVel.length();
-
-    // 通过外部函数获取控制输出系数
-    float mc_coeff = 1.0f; // 多旋翼系数
-    float fw_coeff = 0.0f; // 固定翼系数
-    calculate_blend_coefficients(current_airspeed, mc_coeff, fw_coeff);
-
-    // --- 1. 多旋翼扭矩叠加衰减 ---
-    thrustAndMomentCmd[1] *= mc_coeff;
-    thrustAndMomentCmd[2] *= mc_coeff;
-    thrustAndMomentCmd[3] *= mc_coeff;
-
-    // --- 2. 【核心修复】：解决严重掉高问题 ---
-    // 原始推力是由几何控制器算出来的抗重力推力 (geo_thrust)
-    float geo_thrust = thrustAndMomentCmd[0];
-    
-    // 补偿物理倾转带来的垂直升力损失：需要推力 = 期望垂直力 / cos(tilt)
-    float cos_tilt = cosf(target_tilt);
-    if (cos_tilt < 0.2f) cos_tilt = 0.2f; // 限制最大补偿为5倍，防止贴近90度时推力爆炸
-    float lift_thrust = geo_thrust / cos_tilt;
-
-    // 计算前向加速需要的额外推进力
+    // 1. 速度环 -> 算出纯固定翼需要的前飞推力 fw_thrust
     float err_vx = targetVel.x - stateVel.x;
-    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f;
-    fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
+    float fw_thrust = constrain_float(kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
 
-    // 终极推力融合策略：取两者中的最大值！
-    // 几何控制器的Z轴PID自带对机翼升力的感知(机翼有升力了它算出的geo_thrust就会变小)。
-    // 这里绝对不能用 mc_coeff 去衰减 lift_thrust，否则必掉高！
-    thrustAndMomentCmd[0] = fmaxf(lift_thrust, fw_base_thrust * fw_coeff);
-
-    // --- 2. 固定翼自稳与定高控制 (Auto-Level & Alt Hold) ---
+    // 2. 高度/姿态环 -> 计算并直接输出舵面控制量 (内部包含 fw_coeff 衰减)
     run_fixed_wing_controller(fw_coeff, targetPos, targetVel, statePos, stateVel);
 
-    // motor mixing
-    VectorN<float, 4> motorPWM;
+    // ==========================================================
+    // 第三步：回归本源 —— 模糊切换与权重融合 (Fuzzy Blending)
+    // ==========================================================
+    // 注意：不要新建 final_cmd，直接使用顶部声明好的 thrustAndMomentCmd
 
-    motorPWM = motorMixSimple(thrustAndMomentCmd);
+    // 1. 推力融合：多旋翼控高推力 与 固定翼前飞推力 纯比例加权
+    thrustAndMomentCmd[0] = (mc_cmd[0] * mc_coeff) + (fw_thrust * fw_coeff);
+
+    // 2. 姿态力矩融合：固定翼模式下，多旋翼电机平滑交出姿态控制权
+    thrustAndMomentCmd[1] = mc_cmd[1] * mc_coeff;
+    thrustAndMomentCmd[2] = mc_cmd[2] * mc_coeff;
+    thrustAndMomentCmd[3] = mc_cmd[3] * mc_coeff;
+
+    // 3. 倾转角：轨迹生成器给的绝对物理指令，不参与加权融合
+    thrustAndMomentCmd[4] = asinf(constrain_float(-targetHead.z, -1.0f, 1.0f));
+
+    // ==========================================================
+    // 第四步：输出给底层混控
+    // ==========================================================
+    VectorN<float, 4> motorPWM = motorMixSimple(thrustAndMomentCmd);
 
     // motorPWM saturation
 
@@ -514,16 +492,14 @@ void ModeGeometric::run()
                        AP_HAL::micros64(),
                        (in_horizon_flight),
                        (in_trj_flight));
-    AP::logger().Write("FUZZ", "TimeUS,airspeed,mc_coeff,fw_coeff", "Qfff",
-                       AP_HAL::micros64(),
-                       (current_airspeed),
-                       (mc_coeff),
-                       (fw_coeff));
+    // AP::logger().Write("FUZZ", "TimeUS,airspeed,mc_coeff,fw_coeff", "Qfff",
+    //                    AP_HAL::micros64(),
+    //                    (current_airspeed),
+    //                    (mc_coeff),
+    //                    (fw_coeff));
     last_time_in_geometric = now_time_in_geometric;
 }
 
-// 固定翼自稳与定高控制 (Auto-Level & Alt Hold)
-// 由 run() 调用，在固定翼过渡阶段提供舵面姿态稳定
 void ModeGeometric::run_fixed_wing_controller(
     float fw_coeff,
     const Vector3f &targetPos,
@@ -531,44 +507,34 @@ void ModeGeometric::run_fixed_wing_controller(
     const Vector3f &statePos,
     const Vector3f &stateVel)
 {
-    // 获取当前实际姿态与角速度
-    float current_roll = ahrs.get_roll();
-    float current_pitch = ahrs.get_pitch();
-    Vector3f gyro = ahrs.get_gyro(); // gyro.x 是横滚角速度，gyro.y 是俯仰角速度
+    // 如果还没进入固定翼过渡，直接回中，不浪费算力且避免干扰
+    if (fw_coeff <= 0.01f) {
+        hal.rcout->write(8, 1500);
+        hal.rcout->write(9, 1500);
+        hal.rcout->write(10, 1500);
+        return;
+    }
 
-    // (1) 高度环：计算目标俯仰角 (Target Pitch)
-    // NED 坐标系下 Z 轴朝下。如果 statePos.z > targetPos.z，说明飞机偏低，err_z 为正
+    // 高度环：算俯仰角 (Target Pitch)
     float err_z = statePos.z - targetPos.z;
     float err_vz = stateVel.z - targetVel.z;
+    float target_pitch = constrain_float(g.GeoCtrl_FKA * err_z + g.GeoCtrl_FDA * err_vz, -0.26f, 0.26f);
 
-    float Kp_alt = g.GeoCtrl_FKA;  // 高度误差 -> 俯仰角的比例增益
-    float Kd_alt = g.GeoCtrl_FDA;
-    // 飞机偏低 (err_z > 0) 时，需要正的 Pitch (抬头)。限制最大仰角为 ±15度 (约0.26 rad)
-    float target_pitch = constrain_float(Kp_alt * err_z + Kd_alt * err_vz, -0.26f, 0.26f);
+    // 姿态环：算舵面偏差 (Surface Command)
+    float current_roll = ahrs.get_roll();
+    float current_pitch = ahrs.get_pitch();
+    Vector3f gyro = ahrs.get_gyro();
 
-    // (2) 姿态环：计算舵面指令
-    float Kp_pitch_att = g.GeoCtrl_FKP; // 俯仰姿态 P
-    float Kd_pitch_att = g.GeoCtrl_FDP; // 俯仰角速度 D
-    float pitch_cmd = constrain_float(Kp_pitch_att * (target_pitch - current_pitch) + Kd_pitch_att * (0.0f - gyro.y), -400.0f, 400.0f);
+    float pitch_cmd = constrain_float(g.GeoCtrl_FKP * (target_pitch - current_pitch) + g.GeoCtrl_FDP * (0.0f - gyro.y), -400.0f, 400.0f);
+    float roll_cmd = constrain_float(g.GeoCtrl_FKR * (0.0f - current_roll) + g.GeoCtrl_FDR * (0.0f - gyro.x), -400.0f, 400.0f);
 
-    // 横滚永远目标为 0 (机翼水平)
-    float Kp_roll_att = g.GeoCtrl_FKR;  // 横滚姿态 P
-    float Kd_roll_att = g.GeoCtrl_FDR;   // 横滚角速度 D
-    float roll_cmd = constrain_float(Kp_roll_att * (0.0f - current_roll) + Kd_roll_att * (0.0f - gyro.x), -400.0f, 400.0f);
-
-    // (3) 根据固定翼系数 (fw_coeff) 逐渐释放舵面控制权
+    // 模糊输出：用 fw_coeff 平滑接管物理舵机
     int16_t weighted_pitch = (int16_t)(pitch_cmd * fw_coeff);
     int16_t weighted_roll  = (int16_t)(roll_cmd * fw_coeff);
 
-    // 混控到 PWM (1500 为中立位置)
-    uint16_t pwm_elevon_left  = constrain_int16(1500 + weighted_pitch + weighted_roll, 1100, 1900);
-    uint16_t pwm_elevon_right = constrain_int16(1500 + weighted_pitch - weighted_roll, 1100, 1900);
-    uint16_t pwm_elevator     = constrain_int16(1500 + weighted_pitch, 1100, 1900);
-
-    // 发送 PWM 信号
-    hal.rcout->write(8, pwm_elevon_left);
-    hal.rcout->write(9, pwm_elevon_right);
-    hal.rcout->write(10, pwm_elevator);
+    hal.rcout->write(8, constrain_int16(1500 + weighted_pitch + weighted_roll, 1100, 1900));
+    hal.rcout->write(9, constrain_int16(1500 + weighted_pitch - weighted_roll, 1100, 1900));
+    hal.rcout->write(10, constrain_int16(1500 + weighted_pitch, 1100, 1900));
 }
 
 VectorN<float, 5> ModeGeometric::GeometricTrajectoryController(
