@@ -1446,6 +1446,6 @@ void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coe
         // 你后续可以改为高斯型、梯形等模糊隶属度函数
         fw_coeff = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
         mc_coeff = 1.0f - fw_coeff;
-        // fw_coeff =  1.0f;
+        fw_coeff =  1.0f;
     }
 }
