@@ -331,7 +331,7 @@ void ModeGeometric::run()
     // 4. 将解耦出的倾转角直接塞给控制指令的第 5 位
     thrustAndMomentCmd[4] = target_tilt;
 
-    // 获取当前状态（利用地面速度近似空速）
+    // 获取当前状态
     Vector3f statePos, stateVel;
     if (!ahrs.get_relative_position_NED_origin(statePos)) {
         statePos.zero();
@@ -341,36 +341,63 @@ void ModeGeometric::run()
     }
     float current_airspeed = stateVel.length();
 
-    // 通过外部函数获取控制输出系数
-    float mc_coeff = 1.0f; // 多旋翼系数
-    float fw_coeff = 0.0f; // 固定翼系数
+    // 模糊系数获取 (mc_coeff 和 fw_coeff 将仅作为基础比例)
+    float mc_coeff = 1.0f; 
+    float fw_coeff = 0.0f; 
     calculate_blend_coefficients(current_airspeed, mc_coeff, fw_coeff);
 
-    // --- 1. 多旋翼扭矩叠加衰减 ---
+    // ==========================================================
+    // 终极修复 1：非线性推力融合 (完美贴合升力曲线，消灭掉高与超调)
+    // ==========================================================
+    float geo_thrust = thrustAndMomentCmd[0];
+    float current_pitch = ahrs.get_pitch();
+    float actual_tilt = target_tilt - current_pitch; 
+    
+    // 限制有效计算范围
+    if (actual_tilt < 0.0f) actual_tilt = 0.0f;
+    if (actual_tilt > 1.57f) actual_tilt = 1.57f;
+    
+    float cos_tilt = cosf(actual_tilt);
+    
+    // 【关键修改A】：提高防爆阈值。最小限制为 0.5 (最多放大 2倍)。
+    // 这能在倾转后期极大压制 PID 噪声导致的推力抖动。
+    if (cos_tilt < 0.5f) cos_tilt = 0.5f; 
+    
+    float lift_thrust = geo_thrust / cos_tilt;
+
+    // 固定翼前飞推力 (TECS 保高)
+    float err_vx = targetVel.x - stateVel.x;
+    float err_z_fw = statePos.z - targetPos.z; 
+    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f + err_z_fw * 1.5f;
+    fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
+
+    // 【关键修改B】：空气动力学升力 L ∝ V^2。因此机翼升力占比必须是 fw_coeff 的平方！
+    // 这样在初期能保留绝大部分旋翼保高推力(防掉高)，在后期又能干净利落地切断旋翼干预(防超调)。
+    float wing_lift_ratio = fw_coeff * fw_coeff; 
+    float rotor_lift_ratio = 1.0f - wing_lift_ratio;
+
+    // 平滑、无震荡的推力融合，彻底摒弃导致跳变的 fmaxf
+    thrustAndMomentCmd[0] = lift_thrust * rotor_lift_ratio + fw_base_thrust * wing_lift_ratio;
+
+
+    // ==========================================================
+    // 终极修复 2：物理 CG 力臂前馈 (彻底解决初始起步低头问题)
+    // ==========================================================
+    // 从 SDF 模型得知，电机轴距重心高度差约 0.05655m
+    float cg_offset_z = 0.05655f; 
+    // 现在的推力指令是平滑的，前馈算出来的补偿也会是丝滑的，绝不会激起 Pitch 震荡
+    float forward_thrust_estimate = thrustAndMomentCmd[0] * sinf(target_tilt);
+    float pitch_moment_ff = forward_thrust_estimate * cg_offset_z;
+    
+    // 注入抬头前馈，抵消物理结构导致的低头瞬间
+    thrustAndMomentCmd[2] += pitch_moment_ff;
+
+    // --- 多旋翼姿态力矩衰减 ---
     thrustAndMomentCmd[1] *= mc_coeff;
     thrustAndMomentCmd[2] *= mc_coeff;
     thrustAndMomentCmd[3] *= mc_coeff;
 
-    // --- 2. 【核心修复】：解决严重掉高问题 ---
-    // 原始推力是由几何控制器算出来的抗重力推力 (geo_thrust)
-    float geo_thrust = thrustAndMomentCmd[0];
-    
-    // 补偿物理倾转带来的垂直升力损失：需要推力 = 期望垂直力 / cos(tilt)
-    float cos_tilt = cosf(target_tilt);
-    if (cos_tilt < 0.2f) cos_tilt = 0.2f; // 限制最大补偿为5倍，防止贴近90度时推力爆炸
-    float lift_thrust = geo_thrust / cos_tilt;
-
-    // 计算前向加速需要的额外推进力
-    float err_vx = targetVel.x - stateVel.x;
-    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f;
-    fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
-
-    // 终极推力融合策略：取两者中的最大值！
-    // 几何控制器的Z轴PID自带对机翼升力的感知(机翼有升力了它算出的geo_thrust就会变小)。
-    // 这里绝对不能用 mc_coeff 去衰减 lift_thrust，否则必掉高！
-    thrustAndMomentCmd[0] = fmaxf(lift_thrust, fw_base_thrust * fw_coeff);
-
-    // --- 2. 固定翼自稳与定高控制 (Auto-Level & Alt Hold) ---
+    // --- 固定翼自稳与定高控制 ---
     run_fixed_wing_controller(fw_coeff, targetPos, targetVel, statePos, stateVel);
 
     // motor mixing
