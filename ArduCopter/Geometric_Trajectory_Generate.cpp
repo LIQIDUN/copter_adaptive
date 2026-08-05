@@ -1482,14 +1482,56 @@ float calculate_tilt_angle(float progress)
 //         mc_coeff = 1.0f - fw_coeff;
 //     }
 // }
+
+
 // ====================================================================
 // 2. 混合控制权重分配函数 (非线性物理混合)
+// ====================================================================
+// void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
+// {
+//     // 可以根据你的实际机翼失速速度，适当再提高一点纯多旋翼的死区速度。
+//     // 如果机翼在 5m/s 前完全没用，可以大胆设为 5.0f
+//     const float min_airspeed = 3.0f;  
+//     const float max_airspeed = 17.0f; 
+    
+//     if (airspeed <= min_airspeed) {
+//         mc_coeff = 1.0f;
+//         fw_coeff = 0.0f;
+//     } 
+//     else if (airspeed >= max_airspeed) {
+//         mc_coeff = 0.0f;
+//         fw_coeff = 1.0f;
+//     } 
+//     else {
+//         // 计算归一化的速度进度 t (0 到 1 之间)
+//         float t = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+//         t = constrain_float(t, 0.0f, 1.0f);
+        
+//         // 【方案 A：三次方曲线 (Cubic)】
+//         // 比二次方更加压制前期的增长。
+//         // 当速度达到中点 (t=0.5) 时，fw_coeff 仅为 0.125，mc_coeff 依然高达 0.875！
+//         // 直到最后冲刺阶段，固定翼才迅速接管。
+//         fw_coeff = t * t * t;
+        
+//         // 【方案 B：Perlin 五阶平滑曲线 (Smootherstep)】
+//         // 如果你追求极致的数学平滑（起步和结束时的过渡极其温柔，一阶/二阶导数均为0）
+//         // 建议在力矩耦合特别严重的机型上使用。
+//         // fw_coeff = t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+
+//         mc_coeff = 1.0f - fw_coeff;
+//     }
+// }
+
+
+
+// ====================================================================
+// 2. 硬切换
 // ====================================================================
 void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
 {
     // 可以根据你的实际机翼失速速度，适当再提高一点纯多旋翼的死区速度。
     // 如果机翼在 5m/s 前完全没用，可以大胆设为 5.0f
-    const float min_airspeed = 3.0f;  
+    const float min_airspeed = 6.0f;  
     const float max_airspeed = 17.0f; 
     
     if (airspeed <= min_airspeed) {
@@ -1501,21 +1543,8 @@ void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coe
         fw_coeff = 1.0f;
     } 
     else {
-        // 计算归一化的速度进度 t (0 到 1 之间)
-        float t = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
-        t = constrain_float(t, 0.0f, 1.0f);
         
-        // 【方案 A：三次方曲线 (Cubic)】
-        // 比二次方更加压制前期的增长。
-        // 当速度达到中点 (t=0.5) 时，fw_coeff 仅为 0.125，mc_coeff 依然高达 0.875！
-        // 直到最后冲刺阶段，固定翼才迅速接管。
-        fw_coeff = t * t * t;
-        
-        // 【方案 B：Perlin 五阶平滑曲线 (Smootherstep)】
-        // 如果你追求极致的数学平滑（起步和结束时的过渡极其温柔，一阶/二阶导数均为0）
-        // 建议在力矩耦合特别严重的机型上使用。
-        // fw_coeff = t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-
+        fw_coeff = 0.5;
         mc_coeff = 1.0f - fw_coeff;
     }
 }
