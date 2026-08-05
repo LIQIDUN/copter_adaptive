@@ -1246,14 +1246,14 @@ void Trajectory_Generate_FW_TRANSITION(float timeInThisRun, float targetAlt, flo
 // 输入: progress (过渡进度 0.0 到 1.0)
 // 输出: 当前目标倾转角 (弧度，0 到 PI/2)
 // ====================================================================
-// float calculate_tilt_angle(float progress)
-// {
-//     float max_tilt = M_PI / 2.0f; // 最大倾转角 90 度
+float calculate_tilt_angle(float progress)
+{
+    float max_tilt = M_PI / 2.0f; // 最大倾转角 90 度
     
-//     // 占位：纯粹的线性关系
-//     // 你后续可以在这里改为 S型曲线 (Sigmoid)、多项式平滑等关系
-//     return progress * max_tilt; 
-// }
+    // 占位：纯粹的线性关系
+    // 你后续可以在这里改为 S型曲线 (Sigmoid)、多项式平滑等关系
+    return progress * max_tilt; 
+}
 
 // ====================================================================
 // 1. 倾转角调度函数 (Tilt Angle Profile)
@@ -1347,42 +1347,42 @@ void Trajectory_Generate_FW_TRANSITION(float timeInThisRun, float targetAlt, flo
 //     return lambda_out * max_tilt;
 // }
 
-float calculate_tilt_angle(float progress)
-{
-    float max_tilt = M_PI / 2.0f; // 90度
+// float calculate_tilt_angle(float progress)
+// {
+//     float max_tilt = M_PI / 2.0f; // 90度
 
-    // 确保 progress 在 0~1 之间
-    if (progress <= 0.0f) return 0.0f;
-    if (progress >= 1.0f) return max_tilt;
+//     // 确保 progress 在 0~1 之间
+//     if (progress <= 0.0f) return 0.0f;
+//     if (progress >= 1.0f) return max_tilt;
 
-    // 定义 7 个控制点 (对应 MATLAB 代码中的 5个自由节点 + 首尾2个固定节点)
-    const int NUM_NODES = 7;
+//     // 定义 7 个控制点 (对应 MATLAB 代码中的 5个自由节点 + 首尾2个固定节点)
+//     const int NUM_NODES = 7;
     
-    // 等价于 MATLAB 的 nodeFrac = linspace(0, 1, 7);
-    const float progress_nodes[NUM_NODES] = {
-        0.0f, 0.166667f, 0.333333f, 0.5f, 0.666667f, 0.833333f, 1.0f
-    };
+//     // 等价于 MATLAB 的 nodeFrac = linspace(0, 1, 7);
+//     const float progress_nodes[NUM_NODES] = {
+//         0.0f, 0.166667f, 0.333333f, 0.5f, 0.666667f, 0.833333f, 1.0f
+//     };
 
-    // 等价于 MATLAB 的 lambdak = [0, pOpt, 1]; (这里采用了优化基线 pOpt)
-    const float lambda_nodes[NUM_NODES] = {
-        0.0f, 0.40f, 0.65f, 0.80f, 0.90f, 0.95f, 1.0f
-    };
+//     // 等价于 MATLAB 的 lambdak = [0, pOpt, 1]; (这里采用了优化基线 pOpt)
+//     const float lambda_nodes[NUM_NODES] = {
+//         0.0f, 0.40f, 0.65f, 0.80f, 0.90f, 0.95f, 1.0f
+//     };
 
-    // 线性插值算法
-    float lambda_out = 0.0f;
-    for (int i = 0; i < NUM_NODES - 1; i++) {
-        if (progress >= progress_nodes[i] && progress <= progress_nodes[i + 1]) {
-            // 计算当前段的插值比例
-            float t = (progress - progress_nodes[i]) / (progress_nodes[i + 1] - progress_nodes[i]);
-            // 计算输出
-            lambda_out = lambda_nodes[i] + t * (lambda_nodes[i + 1] - lambda_nodes[i]);
-            break;
-        }
-    }
+//     // 线性插值算法
+//     float lambda_out = 0.0f;
+//     for (int i = 0; i < NUM_NODES - 1; i++) {
+//         if (progress >= progress_nodes[i] && progress <= progress_nodes[i + 1]) {
+//             // 计算当前段的插值比例
+//             float t = (progress - progress_nodes[i]) / (progress_nodes[i + 1] - progress_nodes[i]);
+//             // 计算输出
+//             lambda_out = lambda_nodes[i] + t * (lambda_nodes[i + 1] - lambda_nodes[i]);
+//             break;
+//         }
+//     }
 
-    // 将 0~1 的 lambda 比例转换为实际弧度
-    return lambda_out * max_tilt;
-}
+//     // 将 0~1 的 lambda 比例转换为实际弧度
+//     return lambda_out * max_tilt;
+// }
 // // [0.1029, 0.21985, 0.33117, 0.53781, 0.78641]
 
 // float calculate_tilt_angle(float progress)
