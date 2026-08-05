@@ -361,7 +361,7 @@ void ModeGeometric::run()
     float err_vx = targetVel.x - stateVel.x;
     
     // 简单粗暴补推力：除了补速度 (err_vx * 2.0f)，偏低了就硬加推力 (err_z * 1.5f)
-    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f + err_z * 1.5f;
+    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.7f + err_vx * 5.0f + err_z * 3.5f;
     fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
 
     // 线性平滑交接

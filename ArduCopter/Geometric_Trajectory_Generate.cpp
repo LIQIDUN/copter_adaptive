@@ -1422,15 +1422,74 @@ float calculate_tilt_angle(float progress)
 //     return lambda_out * max_tilt;
 // }
 
+// // ====================================================================
+// // 2. 混合控制权重分配函数 (Fuzzy Blending Logic)
+// // 输入: airspeed (当前空速，单位 m/s)
+// // 输出: mc_coeff (多旋翼控制权重 0~1), fw_coeff (固定翼控制权重 0~1)
+// // ====================================================================
+// void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
+// {
+//     // 假设：8m/s 以下纯多旋翼，12m/s 以上纯固定翼
+//     const float min_airspeed = 1.0f;  
+//     const float max_airspeed = 17.0f; 
+    
+//     if (airspeed <= min_airspeed) {
+//         mc_coeff = 1.0f;
+//         fw_coeff = 0.0f;
+//     } 
+//     else if (airspeed >= max_airspeed) {
+//         mc_coeff = 0.0f;
+//         fw_coeff = 1.0f;
+//     } 
+//     else {
+//         // 占位：简单的线性模糊过渡
+//         // 你后续可以改为高斯型、梯形等模糊隶属度函数
+//         fw_coeff = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+//         mc_coeff = 1.0f - fw_coeff;
+//         // fw_coeff =  1.0f;
+//     }
+// }
+// // ====================================================================
+// // 2. 混合控制权重分配函数 (非线性物理混合)
+// // ====================================================================
+// void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
+// {
+//     // 将最低起调速度提高到 3.0m/s，在此之前纯多旋翼死死咬住姿态
+//     const float min_airspeed = 3.0f;  
+//     const float max_airspeed = 17.0f; 
+    
+//     if (airspeed <= min_airspeed) {
+//         mc_coeff = 1.0f;
+//         fw_coeff = 0.0f;
+//     } 
+//     else if (airspeed >= max_airspeed) {
+//         mc_coeff = 0.0f;
+//         fw_coeff = 1.0f;
+//     } 
+//     else {
+//         // 计算归一化的速度进度 t (0 到 1 之间)
+//         float t = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+//         t = constrain_float(t, 0.0f, 1.0f);
+        
+//         // 【核心修改】：使用二次方 (抛物线) 曲线代替线性曲线
+//         // 效果：初期 t 较小时 (例如 t=0.2)，fw_coeff 只有 0.04，mc_coeff 高达 0.96。
+//         // 这意味着在刚开始倾转时，多旋翼系数下降极慢，强力维持姿态；等速度真正起来后，固定翼才迅速接管。
+//         fw_coeff = t * t;
+        
+//         // 另一种可选的平滑过渡 (Smoothstep) 曲线，两头缓，中间快，飞行质感更柔和：
+//         // fw_coeff = t * t * (3.0f - 2.0f * t);
+
+//         mc_coeff = 1.0f - fw_coeff;
+//     }
+// }
 // ====================================================================
-// 2. 混合控制权重分配函数 (Fuzzy Blending Logic)
-// 输入: airspeed (当前空速，单位 m/s)
-// 输出: mc_coeff (多旋翼控制权重 0~1), fw_coeff (固定翼控制权重 0~1)
+// 2. 混合控制权重分配函数 (非线性物理混合)
 // ====================================================================
 void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coeff)
 {
-    // 假设：8m/s 以下纯多旋翼，12m/s 以上纯固定翼
-    const float min_airspeed = 1.0f;  
+    // 可以根据你的实际机翼失速速度，适当再提高一点纯多旋翼的死区速度。
+    // 如果机翼在 5m/s 前完全没用，可以大胆设为 5.0f
+    const float min_airspeed = 3.0f;  
     const float max_airspeed = 17.0f; 
     
     if (airspeed <= min_airspeed) {
@@ -1442,10 +1501,21 @@ void calculate_blend_coefficients(float airspeed, float &mc_coeff, float &fw_coe
         fw_coeff = 1.0f;
     } 
     else {
-        // 占位：简单的线性模糊过渡
-        // 你后续可以改为高斯型、梯形等模糊隶属度函数
-        fw_coeff = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+        // 计算归一化的速度进度 t (0 到 1 之间)
+        float t = (airspeed - min_airspeed) / (max_airspeed - min_airspeed);
+        t = constrain_float(t, 0.0f, 1.0f);
+        
+        // 【方案 A：三次方曲线 (Cubic)】
+        // 比二次方更加压制前期的增长。
+        // 当速度达到中点 (t=0.5) 时，fw_coeff 仅为 0.125，mc_coeff 依然高达 0.875！
+        // 直到最后冲刺阶段，固定翼才迅速接管。
+        fw_coeff = t * t * t;
+        
+        // 【方案 B：Perlin 五阶平滑曲线 (Smootherstep)】
+        // 如果你追求极致的数学平滑（起步和结束时的过渡极其温柔，一阶/二阶导数均为0）
+        // 建议在力矩耦合特别严重的机型上使用。
+        // fw_coeff = t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+
         mc_coeff = 1.0f - fw_coeff;
-        // fw_coeff =  1.0f;
     }
 }
