@@ -368,7 +368,7 @@ void ModeGeometric::run()
     // 固定翼前飞推力 (TECS 保高)
     float err_vx = targetVel.x - stateVel.x;
     float err_z_fw = statePos.z - targetPos.z; 
-    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.3f + err_vx * 2.0f + err_z_fw * 1.5f;
+    float fw_base_thrust = kg_vehicleMass * 9.8f * 0.5f + err_vx * 4.0f + err_z_fw * 3.5f;
     fw_base_thrust = constrain_float(fw_base_thrust, 0.0f, kg_vehicleMass * 9.8f * 2.0f);
 
     // 【关键修改B】：空气动力学升力 L ∝ V^2。因此机翼升力占比必须是 fw_coeff 的平方！
