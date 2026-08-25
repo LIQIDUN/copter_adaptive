@@ -99,6 +99,15 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_TIME", 12, Tiltrotor, dcptilt_transition_time_s, 30.0f),
 
+    // @Param: DCPT_HNDT
+    // @DisplayName: DCPTilt throttle handover time
+    // @Description: Time used after the primary DCPTilt tilt transition completes to smoothly blend the actual tilting-motor output at completion into the fixed-wing throttle demand. This handover does not extend DCPTilt transition progress. Set to zero to disable.
+    // @Units: s
+    // @Range: 0 10
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_HNDT", 13, Tiltrotor, dcptilt_handover_time_s, 3.0f),
+
     AP_GROUPEND
 };
 
@@ -227,6 +236,45 @@ void Tiltrotor::dcptilt_set_tilt_direct(float newtilt)
     SRV_Channels::set_output_scaled(SRV_Channel::k_motor_tilt, 1000.0f * current_tilt);
 }
 
+// Capture the actuator level that the tilting motors are actually outputting
+// at the end of the primary transition. Using the actual PWM-derived level is
+// important here: motors->get_throttle() is the pre tilt-compensation demand
+// and can be much lower than the final motor output when 1/cos(tilt) has
+// driven the motors to saturation.
+float Tiltrotor::dcptilt_capture_forward_output() const
+{
+    const int16_t pwm_min = motors->get_pwm_output_min();
+    const int16_t pwm_max = motors->get_pwm_output_max();
+
+    if (pwm_max <= pwm_min) {
+        return constrain_float(motors->get_throttle(), 0.0f, 1.0f);
+    }
+
+    float output_sum = 0.0f;
+    uint8_t output_count = 0;
+
+    for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {
+        if (!motors->is_motor_enabled(i) || !is_motor_tilting(i)) {
+            continue;
+        }
+
+        uint16_t pwm = 0;
+        if (!SRV_Channels::get_output_pwm(SRV_Channels::get_motor_function(i), pwm)) {
+            continue;
+        }
+
+        const float output = (float(pwm) - float(pwm_min)) / float(pwm_max - pwm_min);
+        output_sum += constrain_float(output, 0.0f, 1.0f);
+        output_count++;
+    }
+
+    if (output_count == 0) {
+        return constrain_float(motors->get_throttle(), 0.0f, 1.0f);
+    }
+
+    return output_sum / output_count;
+}
+
 #if HAL_LOGGING_ENABLED
 // DCPTilt research logging. This deliberately follows the same dynamic
 // AP::logger().Write() pattern used by the user's geometric-controller project
@@ -286,6 +334,20 @@ void Tiltrotor::dcptilt_write_log()
         plane.ahrs.roll_sensor * 0.01f,
         plane.ahrs.pitch_sensor * 0.01f,
         (int8_t)quadplane.assisted_flight);
+
+    // Post-transition handover and heading-lock diagnostics.
+    AP::logger().Write(
+        "DCPH",
+        "TimeUS,Hnd,HPr,H0,FW,HOut,YawT,Yaw",
+        "Qbffffff",
+        AP_HAL::micros64(),
+        (int8_t)dcptilt_handover_active,
+        dcptilt_handover_progress,
+        dcptilt_handover_start_throttle,
+        fw_throttle,
+        dcptilt_handover_output,
+        dcptilt_yaw_target_cd * 0.01f,
+        plane.ahrs.yaw_sensor * 0.01f);
 }
 #endif
 
@@ -310,6 +372,13 @@ void Tiltrotor::continuous_update(void)
     // default to inactive
     _motors_active = false;
 
+    // The stock Q_ASSIST path has priority over the research handover.
+    // When assistance becomes active we leave the handover permanently and
+    // let the official assisted-flight tilt/motor logic take control.
+    if (dcptilt_handover_active && quadplane.assisted_flight) {
+        dcptilt_handover_active = false;
+    }
+
     // the maximum rate of throttle change
     float max_change;
 
@@ -324,15 +393,45 @@ void Tiltrotor::continuous_update(void)
         max_change = tilt_max_change(false);
 
         float new_throttle = constrain_float(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle)*0.01, 0, 1);
-        if (current_tilt < get_fully_forward_tilt()) {
+
+        if (dcptilt_handover_active && current_tilt >= get_fully_forward_tilt()) {
+            const float handover_time_s = dcptilt_handover_time_s.get();
+            if (handover_time_s <= 0.0f) {
+                dcptilt_handover_progress = 1.0f;
+                dcptilt_handover_output = new_throttle;
+                dcptilt_handover_active = false;
+                current_throttle = new_throttle;
+            } else {
+                const float elapsed_s = (AP_HAL::millis() - dcptilt_handover_start_ms) * 0.001f;
+                dcptilt_handover_progress = constrain_float(elapsed_s / handover_time_s, 0.0f, 1.0f);
+
+                // Smoothstep gives zero slope at both ends of the handover and
+                // removes both the output step and a derivative step.
+                const float p = dcptilt_handover_progress;
+                const float blend = p * p * (3.0f - 2.0f * p);
+                dcptilt_handover_output =
+                    dcptilt_handover_start_throttle * (1.0f - blend) +
+                    new_throttle * blend;
+                current_throttle = constrain_float(dcptilt_handover_output, 0.0f, 1.0f);
+
+                if (dcptilt_handover_progress >= 1.0f) {
+                    dcptilt_handover_active = false;
+                    current_throttle = new_throttle;
+                    dcptilt_handover_output = current_throttle;
+                }
+            }
+        } else if (current_tilt < get_fully_forward_tilt()) {
             current_throttle = constrain_float(new_throttle,
                                                     current_throttle-max_change,
                                                     current_throttle+max_change);
         } else {
             current_throttle = new_throttle;
+            dcptilt_handover_output = current_throttle;
         }
+
         if (!plane.arming.is_armed_and_safety_off()) {
             current_throttle = 0;
+            dcptilt_handover_active = false;
         } else {
             // prevent motor shutdown
             _motors_active = true;
@@ -792,6 +891,17 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_progress = 0.0f;
     tiltrotor.dcptilt_elapsed_s = 0.0f;
     tiltrotor.dcptilt_target_tilt = 0.0f;
+
+    tiltrotor.dcptilt_handover_active = false;
+    tiltrotor.dcptilt_handover_start_ms = 0;
+    tiltrotor.dcptilt_handover_start_throttle = 0.0f;
+    tiltrotor.dcptilt_handover_progress = 0.0f;
+    tiltrotor.dcptilt_handover_output = 0.0f;
+
+    tiltrotor.dcptilt_yaw_lock_active = false;
+    tiltrotor.dcptilt_yaw_target_cd = 0.0f;
+
+    dcptilt_primary_transition_complete = false;
 }
 
 void Tiltrotor_Transition::update()
@@ -800,6 +910,15 @@ void Tiltrotor_Transition::update()
         SLT_Transition::update();
         return;
     }
+
+    // The time-scheduled DCPTilt transition is used only for the primary
+    // VTOL->FW transition. After it completes, delegate to the stock SLT
+    // logic so Q_ASSIST remains available strictly as a safety mechanism.
+    if (dcptilt_primary_transition_complete) {
+        SLT_Transition::update();
+        return;
+    }
+
     dcptilt_update();
 }
 
@@ -821,7 +940,7 @@ void Tiltrotor_Transition::restart()
     SLT_Transition::restart();
 }
 
-// DCPTilt v1 forward transition:
+// DCPTilt v2 primary forward transition:
 //  * starts immediately on the first fixed-wing transition update
 //  * progress = elapsed / Q_TILT_DCPT_TIME
 //  * tilt follows dcptilt_tilt_profile(progress)
@@ -844,12 +963,11 @@ void Tiltrotor_Transition::dcptilt_update()
     }
 
     if (transition_state == TRANSITION_DONE && !tiltrotor.dcptilt_transition_active) {
-        quadplane.assisted_flight = false;
-        if (!tiltrotor.motors_active()) {
-            quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
-            motors->output();
-        }
-        set_last_fw_pitch();
+        // We are already in fixed-wing flight without having entered a new
+        // VTOL->FW transition. Treat DCPTilt primary transition as complete
+        // and use the standard SLT path from now on (including Q_ASSIST).
+        dcptilt_primary_transition_complete = true;
+        SLT_Transition::update();
         return;
     }
 
@@ -870,6 +988,12 @@ void Tiltrotor_Transition::dcptilt_update()
         plane.pitchController.reset_I();
         plane.rollController.reset_I();
         quadplane.attitude_control->set_throttle_mix_max(1.0f);
+
+        // Lock the heading that existed at transition entry. This is a target
+        // angle, not a repeated reset to the already-drifted current yaw.
+        tiltrotor.dcptilt_yaw_target_cd = quadplane.ahrs.yaw_sensor;
+        tiltrotor.dcptilt_yaw_lock_active = true;
+
         gcs().send_text(MAV_SEVERITY_INFO, "DCPTilt transition start");
     }
 
@@ -907,24 +1031,44 @@ void Tiltrotor_Transition::dcptilt_update()
     quadplane.assisted_flight = true;
     quadplane.hold_stabilize(throttle_scaled);
 
-    if (!tiltrotor.is_vectored()) {
-        quadplane.attitude_control->reset_yaw_target_and_rate();
-        quadplane.attitude_control->rate_bf_yaw_target(0.0f);
-    }
-
     quadplane.motors_output();
     set_last_fw_pitch();
 
     if (tiltrotor.dcptilt_progress >= 1.0f) {
         tiltrotor.dcptilt_target_tilt = 1.0f;
         tiltrotor.dcptilt_set_tilt_direct(1.0f);
+
+        // motors_output() above has already produced this cycle's final
+        // transition motor commands. Capture that actual output before
+        // changing to the pure fixed-wing output path. This prevents the
+        // observed ~1950 -> ~1500 one-cycle step.
+        if (!tiltrotor.has_vtol_motor() && !tiltrotor.has_fw_motor() &&
+            tiltrotor.dcptilt_handover_time_s.get() > 0.0f) {
+            tiltrotor.dcptilt_handover_start_throttle =
+                tiltrotor.dcptilt_capture_forward_output();
+            tiltrotor.dcptilt_handover_output =
+                tiltrotor.dcptilt_handover_start_throttle;
+            tiltrotor.dcptilt_handover_progress = 0.0f;
+            tiltrotor.dcptilt_handover_start_ms = now;
+            tiltrotor.dcptilt_handover_active = true;
+        } else {
+            tiltrotor.dcptilt_handover_active = false;
+            tiltrotor.dcptilt_handover_progress = 1.0f;
+        }
+
         tiltrotor.dcptilt_transition_active = false;
+        tiltrotor.dcptilt_yaw_lock_active = false;
+        dcptilt_primary_transition_complete = true;
+
         transition_state = TRANSITION_DONE;
         transition_start_ms = 0;
         transition_low_airspeed_ms = 0;
         in_forced_transition = false;
         quadplane.assisted_flight = false;
-        gcs().send_text(MAV_SEVERITY_INFO, "DCPTilt transition done");
+
+        gcs().send_text(MAV_SEVERITY_INFO,
+                        "DCPTilt done, handover %.2f",
+                        (double)tiltrotor.dcptilt_handover_start_throttle);
     }
 }
 
@@ -963,6 +1107,16 @@ void Tiltrotor::update_yaw_target(void)
 
 bool Tiltrotor_Transition::update_yaw_target(float& yaw_target_cd)
 {
+    // DCPTilt primary transition: hold the heading captured at transition
+    // entry. QuadPlane::multicopter_attitude_rate_update() uses this hook to
+    // enable multicopter attitude control with an absolute yaw target.
+    if (tiltrotor.dcptilt_enabled() &&
+        tiltrotor.dcptilt_transition_active &&
+        tiltrotor.dcptilt_yaw_lock_active) {
+        yaw_target_cd = tiltrotor.dcptilt_yaw_target_cd;
+        return true;
+    }
+
     if (!(tiltrotor.is_vectored() &&
         transition_state <= TRANSITION_TIMER)) {
         return false;
@@ -976,6 +1130,15 @@ bool Tiltrotor_Transition::update_yaw_target(float& yaw_target_cd)
 bool Tiltrotor_Transition::show_vtol_view() const
 {
     bool show_vtol = quadplane.in_vtol_mode();
+
+    if (!show_vtol &&
+        tiltrotor.dcptilt_enabled() &&
+        tiltrotor.dcptilt_transition_active &&
+        tiltrotor.dcptilt_yaw_lock_active) {
+        // DCPTilt uses the multicopter attitude controller with an absolute
+        // yaw target during the primary forward transition.
+        return true;
+    }
 
     if (!show_vtol && tiltrotor.is_vectored() && transition_state <= TRANSITION_TIMER) {
         // we use multirotor controls during fwd transition for

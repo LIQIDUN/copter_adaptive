@@ -69,6 +69,7 @@ public:
     bool dcptilt_enabled() const { return dcptilt_enable > 0; }
     float dcptilt_tilt_profile(float progress) const;
     void dcptilt_set_tilt_direct(float tilt);
+    float dcptilt_capture_forward_output() const;
     // Declaration is unconditional on purpose. tiltrotor.h is included
     // before Plane.h in tiltrotor.cpp, so HAL_LOGGING_ENABLED is not
     // guaranteed to be defined when this header is parsed. The
@@ -93,6 +94,7 @@ public:
     // DCPTilt research forward-transition parameters
     AP_Int8 dcptilt_enable;
     AP_Float dcptilt_transition_time_s;
+    AP_Float dcptilt_handover_time_s;
 
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
@@ -100,6 +102,20 @@ public:
     float dcptilt_progress = 0.0f;
     float dcptilt_elapsed_s = 0.0f;
     float dcptilt_target_tilt = 0.0f;
+
+    // DCPTilt post-transition throttle handover. This is deliberately
+    // separate from dcptilt_progress: the primary tilt transition still
+    // completes exactly at Q_TILT_DCPT_TIME.
+    bool dcptilt_handover_active = false;
+    uint32_t dcptilt_handover_start_ms = 0;
+    float dcptilt_handover_start_throttle = 0.0f;
+    float dcptilt_handover_progress = 0.0f;
+    float dcptilt_handover_output = 0.0f;
+
+    // Heading captured at the start of the DCPTilt forward transition.
+    bool dcptilt_yaw_lock_active = false;
+    float dcptilt_yaw_target_cd = 0.0f;
+
     uint32_t dcptilt_last_log_ms = 0;
 
     float current_tilt;
@@ -161,6 +177,11 @@ private:
 
     void dcptilt_update();
     void dcptilt_reset_state();
+
+    // Once the research time-scheduled transition has completed, the
+    // standard SLT state machine is used only as the post-transition
+    // Q_ASSIST/safety path. It must not start another DCPTilt transition.
+    bool dcptilt_primary_transition_complete = false;
 
     Tiltrotor& tiltrotor;
 
