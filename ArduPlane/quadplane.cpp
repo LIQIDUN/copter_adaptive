@@ -1880,6 +1880,23 @@ void QuadPlane::update(void)
 
     tiltrotor.update();
 
+    // DCPTilt fixed-wing controller weighting. Attitude.cpp supplies the
+    // DCPTilt altitude-hold pitch target through Plane's native FW pitch
+    // controller, while roll remains on the normal FBWA/FBWB path. Weight
+    // the native FW control outputs here before Plane's surface mixers run.
+    if (tiltrotor.dcptilt_enabled() && tiltrotor.dcptilt_transition_active) {
+        const float fw_weight = constrain_float(tiltrotor.dcptilt_fw_weight, 0.0f, 1.0f);
+        SRV_Channels::set_output_scaled(
+            SRV_Channel::k_aileron,
+            SRV_Channels::get_output_scaled(SRV_Channel::k_aileron) * fw_weight);
+        SRV_Channels::set_output_scaled(
+            SRV_Channel::k_elevator,
+            SRV_Channels::get_output_scaled(SRV_Channel::k_elevator) * fw_weight);
+        SRV_Channels::set_output_scaled(
+            SRV_Channel::k_rudder,
+            SRV_Channels::get_output_scaled(SRV_Channel::k_rudder) * fw_weight);
+    }
+
 #if HAL_LOGGING_ENABLED
     // motors logging
     if (motors->armed()) {
@@ -2077,6 +2094,21 @@ void QuadPlane::motors_output(bool run_rate_controller)
         attitude_control->set_dt(last_loop_time_s);
         pos_control->set_dt(last_loop_time_s);
         attitude_control->rate_controller_run();
+
+        // DCPTilt experimental multicopter-controller weighting. This mirrors
+        // the old SITL code's multiplication of roll/pitch/yaw moments by
+        // mc_coeff, but applies it at the native AP_Motors controller-output
+        // boundary so the standard ArduPlane/AP_Motors mixer is retained.
+        if (tiltrotor.dcptilt_enabled() && tiltrotor.dcptilt_transition_active) {
+            const float mc_weight = constrain_float(tiltrotor.dcptilt_mc_weight, 0.0f, 1.0f);
+            motors->set_roll(motors->get_roll() * mc_weight);
+            motors->set_roll_ff(motors->get_roll_ff() * mc_weight);
+            motors->set_pitch(motors->get_pitch() * mc_weight);
+            motors->set_pitch_ff(motors->get_pitch_ff() * mc_weight);
+            motors->set_yaw(motors->get_yaw() * mc_weight);
+            motors->set_yaw_ff(motors->get_yaw_ff() * mc_weight);
+        }
+
         last_att_control_ms = now;
     }
 

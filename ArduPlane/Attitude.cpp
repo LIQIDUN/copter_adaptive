@@ -181,6 +181,26 @@ float Plane::stabilize_pitch_get_pitch_out()
 {
     const float speed_scaler = get_speed_scaler();
 #if HAL_QUADPLANE_ENABLED
+    // DCPTilt owns only the fixed-wing pitch target during the active
+    // research transition. Roll remains on the normal FBWA/FBWB Plane path.
+    // The pitch target comes from the common transition-entry altitude loop,
+    // so FBWA and FBWB use the same altitude-hold pitch command while
+    // DCPTilt is active. RC/TECS throttle-to-pitch feed-forward is omitted.
+    if (quadplane.tiltrotor.dcptilt_enabled() &&
+        quadplane.tiltrotor.dcptilt_transition_active) {
+        pitchController.reset_I();
+        const int32_t demanded_pitch =
+            quadplane.tiltrotor.dcptilt_fw_pitch_target_cd +
+            int32_t(g.pitch_trim * 100.0f);
+        return pitchController.get_servo_out(
+            demanded_pitch - ahrs.pitch_sensor,
+            speed_scaler,
+            true,
+            ground_mode &&
+                !(plane.flight_option_enabled(FlightOptions::DISABLE_GROUND_PID_SUPPRESSION)));
+    }
+#endif
+#if HAL_QUADPLANE_ENABLED
     if (!quadplane.use_fw_attitude_controllers()) {
         // use the VTOL rate for control, to ensure consistency
         const auto &pid_info = quadplane.attitude_control->get_rate_pitch_pid().get_pid_info();

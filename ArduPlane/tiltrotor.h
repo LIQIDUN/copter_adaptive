@@ -70,6 +70,10 @@ public:
     float dcptilt_tilt_profile(float progress) const;
     void dcptilt_set_tilt_direct(float tilt);
     float dcptilt_capture_forward_output() const;
+    void dcptilt_update_control_weights();
+    float dcptilt_strategy_speed() const;
+    float dcptilt_lift_speed() const;
+    void dcptilt_update_altitude_controller();
     // Declaration is unconditional on purpose. tiltrotor.h is included
     // before Plane.h in tiltrotor.cpp, so HAL_LOGGING_ENABLED is not
     // guaranteed to be defined when this header is parsed. The
@@ -95,6 +99,22 @@ public:
     AP_Int8 dcptilt_enable;
     AP_Float dcptilt_transition_time_s;
     AP_Float dcptilt_handover_time_s;
+    AP_Int8 dcptilt_mode;
+    AP_Int8 dcptilt_profile;
+
+    // DCPTilt common altitude / vertical-force controller parameters.
+    // These are shared by all 3x6 experiments so controller strategy and
+    // tilt profile remain the only experimental variables.
+    AP_Float dcptilt_alt_p;
+    AP_Float dcptilt_alt_d;
+    AP_Float dcptilt_accel_max;
+    AP_Float dcptilt_fw_alt_p;
+    AP_Float dcptilt_fw_alt_d;
+    AP_Float dcptilt_fw_pitch_max_deg;
+    AP_Float dcptilt_vlift_mps;
+    AP_Float dcptilt_cos_regularizer;
+    AP_Float dcptilt_lift_ratio_max;
+    AP_Float dcptilt_thrust_filter_s;
 
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
@@ -102,6 +122,29 @@ public:
     float dcptilt_progress = 0.0f;
     float dcptilt_elapsed_s = 0.0f;
     float dcptilt_target_tilt = 0.0f;
+
+    // DCPTilt controller-allocation state. These two coefficients reproduce
+    // the strategy logic used in the user's FUZZ / SWITCH / NMPC SITL code.
+    float dcptilt_strategy_speed_mps = 0.0f;
+    float dcptilt_mc_weight = 1.0f;
+    float dcptilt_fw_weight = 0.0f;
+
+    // Common DCPTilt altitude and vertical-force state. Altitude is local
+    // NED Z-up in metres. The target is captured at transition entry.
+    bool dcptilt_alt_target_valid = false;
+    float dcptilt_alt_target_m = 0.0f;
+    float dcptilt_altitude_m = 0.0f;
+    float dcptilt_alt_error_m = 0.0f;
+    float dcptilt_vz_up_mps = 0.0f;
+    float dcptilt_accel_up_cmd_mss = 0.0f;
+    float dcptilt_lift_speed_mps = 0.0f;
+    float dcptilt_wing_lift_ratio = 0.0f;
+    float dcptilt_thrust_ratio_tau = 1.0f;
+    float dcptilt_throttle_raw = 0.0f;
+    float dcptilt_throttle_cmd = 0.0f;
+    int32_t dcptilt_fw_pitch_target_cd = 0;
+    bool dcptilt_thrust_saturated = false;
+    uint32_t dcptilt_alt_last_ms = 0;
 
     // DCPTilt post-transition throttle handover. This is deliberately
     // separate from dcptilt_progress: the primary tilt transition still
@@ -124,6 +167,23 @@ public:
     float transition_yaw_cd;
     uint32_t transition_yaw_set_ms;
     bool _is_vectored;
+
+    // DCPTilt controller-allocation strategy selector
+    enum DCPTiltMode : uint8_t {
+        DCPT_MODE_FUZZ = 0,
+        DCPT_MODE_SWITCH = 1,
+        DCPT_MODE_NMPC = 2
+    };
+
+    // DCPTilt tilt-profile selector
+    enum DCPTiltProfile : uint8_t {
+        DCPT_PROFILE_LINEAR = 0,
+        DCPT_PROFILE_SMOOTHSTEP = 1,
+        DCPT_PROFILE_POPT_A = 2,
+        DCPT_PROFILE_POPT_B = 3,
+        DCPT_PROFILE_POPT_C = 4,
+        DCPT_PROFILE_POPT_D = 5
+    };
 
     // types of tilt mechanisms
     enum {TILT_TYPE_CONTINUOUS    =0,
