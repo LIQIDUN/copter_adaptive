@@ -65,6 +65,16 @@ public:
 
     bool motors_active() const { return enabled() && _motors_active; }
 
+    // DCPTilt research forward-transition helpers.
+    bool dcptilt_enabled() const { return dcptilt_enable > 0; }
+    float dcptilt_tilt_profile(float progress) const;
+    void dcptilt_set_tilt_direct(float tilt);
+    // Declaration is unconditional on purpose. tiltrotor.h is included
+    // before Plane.h in tiltrotor.cpp, so HAL_LOGGING_ENABLED is not
+    // guaranteed to be defined when this header is parsed. The
+    // implementation and call remain guarded in tiltrotor.cpp.
+    void dcptilt_write_log();
+
     // true if the tilts have completed slewing
     // always return true if not enabled or not a continuous type
     bool tilt_angle_achieved() const { return !enabled() || (type != TILT_TYPE_CONTINUOUS) || angle_achieved; }
@@ -79,6 +89,18 @@ public:
     AP_Float fixed_angle;
     AP_Float fixed_gain;
     AP_Float flap_angle_deg;
+
+    // DCPTilt research forward-transition parameters
+    AP_Int8 dcptilt_enable;
+    AP_Float dcptilt_transition_time_s;
+
+    // DCPTilt transition state shared with the tilt-output path and logger
+    bool dcptilt_transition_active = false;
+    uint32_t dcptilt_transition_start_ms = 0;
+    float dcptilt_progress = 0.0f;
+    float dcptilt_elapsed_s = 0.0f;
+    float dcptilt_target_tilt = 0.0f;
+    uint32_t dcptilt_last_log_ms = 0;
 
     float current_tilt;
     float current_throttle;
@@ -126,11 +148,19 @@ public:
 
     Tiltrotor_Transition(QuadPlane& _quadplane, AP_MotorsMulticopter*& _motors, Tiltrotor& _tiltrotor):SLT_Transition(_quadplane, _motors), tiltrotor(_tiltrotor) {};
 
+    void update() override;
+    void VTOL_update() override;
+    void force_transition_complete() override;
+    void restart() override;
+
     bool update_yaw_target(float& yaw_target_cd) override;
 
     bool show_vtol_view() const override;
 
 private:
+
+    void dcptilt_update();
+    void dcptilt_reset_state();
 
     Tiltrotor& tiltrotor;
 

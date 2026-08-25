@@ -43,6 +43,7 @@ public:
     friend class RC_Channel;
     friend class Tailsitter;
     friend class Tiltrotor;
+    friend class Tiltrotor_Transition;
     friend class SLT_Transition;
     friend class Tailsitter_Transition;
 

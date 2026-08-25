@@ -998,7 +998,6 @@ void QuadPlane::multicopter_attitude_rate_update(float yaw_rate_cds)
         attitude_control->input_rate_bf_roll_pitch_yaw_2(bf_input_cd.x, bf_input_cd.y, bf_input_cd.z);
     }
 }
-
 // hold in stabilize with given throttle
 void QuadPlane::hold_stabilize(float throttle_in)
 {    
@@ -1998,7 +1997,7 @@ void QuadPlane::update_throttle_hover()
 
     // do not update if quadplane forward motor is running (wing may be generating lift)
     // we use the THR_MIN value to account for petrol motors idling at THR_MIN
-    if (!tailsitter.enabled() && (SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) > MAX(0,plane.aparm.throttle_min+10))) {
+if (!tailsitter.enabled() && (SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) > MAX(0,plane.aparm.throttle_min+10))) {
         return;
     }
 
@@ -2998,7 +2997,6 @@ QuadPlane::ActiveFwdThr QuadPlane::get_vfwd_method(void) const
     }
     return ActiveFwdThr::NONE;
 }
-
 /*
   map from pitch tilt to fwd throttle when enabled
  */
@@ -3998,7 +3996,7 @@ bool QuadPlane::do_user_takeoff(float takeoff_altitude)
     guided_wait_takeoff = false;
     if (!option_is_set(QuadPlane::OPTION::DISABLE_GROUND_EFFECT_COMP)) {
         ahrs.set_takeoff_expected(true);
-    }
+}
     return true;
 }
 

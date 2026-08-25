@@ -142,6 +142,7 @@ public:
     friend class RC_Channels_Plane;
     friend class Tailsitter;
     friend class Tiltrotor;
+    friend class Tiltrotor_Transition;
     friend class SLT_Transition;
     friend class Tailsitter_Transition;
 
@@ -997,8 +998,7 @@ private:
     bool current_mode_requires_mission() const override {
         return control_mode == &mode_auto;
     }
-
-    bool autotuning;
+bool autotuning;
 
     // events.cpp
     void failsafe_short_on_event(enum failsafe_state fstype, ModeReason reason);

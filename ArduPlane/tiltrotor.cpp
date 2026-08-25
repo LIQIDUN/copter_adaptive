@@ -1,5 +1,6 @@
 #include "tiltrotor.h"
 #include "Plane.h"
+#include <AP_Logger/AP_Logger.h>
 
 #if HAL_QUADPLANE_ENABLED
 const AP_Param::GroupInfo Tiltrotor::var_info[] = {
@@ -81,6 +82,22 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Range: 0 15
     // @User: Standard
     AP_GROUPINFO("WING_FLAP", 10, Tiltrotor, flap_angle_deg, 0),
+
+    // @Param: DCPT_EN
+    // @DisplayName: DCPTilt research transition enable
+    // @Description: Enables the DCPTilt time-scheduled forward transition for continuous tiltrotors. Airspeed is monitoring only and is not used as a normal transition completion condition.
+    // @Values: 0:Disabled,1:Enabled
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_EN", 11, Tiltrotor, dcptilt_enable, 0),
+
+    // @Param: DCPT_TIME
+    // @DisplayName: DCPTilt forward transition time
+    // @Description: Total duration of the DCPTilt forward transition. The transition starts immediately when entering fixed-wing flight from VTOL and completes when this time has elapsed.
+    // @Units: s
+    // @Range: 1 120
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TIME", 12, Tiltrotor, dcptilt_transition_time_s, 30.0f),
 
     AP_GROUPEND
 };
@@ -193,6 +210,85 @@ void Tiltrotor::slew(float newtilt)
     SRV_Channels::set_output_scaled(SRV_Channel::k_motor_tilt, 1000 * current_tilt);
 }
 
+// DCPTilt v1 tilt profile. 0 means vertical/VTOL and 1 means fully forward.
+// Future experimental profiles should be isolated to this function.
+float Tiltrotor::dcptilt_tilt_profile(float progress) const
+{
+    return constrain_float(progress, 0.0f, 1.0f);
+}
+
+// Direct DCPTilt output. This intentionally bypasses slew(),
+// tilt_max_change(), Q_TILT_RATE_UP and Q_TILT_RATE_DN.
+void Tiltrotor::dcptilt_set_tilt_direct(float newtilt)
+{
+    const float constrained_tilt = constrain_float(newtilt, 0.0f, 1.0f);
+    current_tilt = constrained_tilt;
+    angle_achieved = is_equal(newtilt, constrained_tilt);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_motor_tilt, 1000.0f * current_tilt);
+}
+
+#if HAL_LOGGING_ENABLED
+// DCPTilt research logging. This deliberately follows the same dynamic
+// AP::logger().Write() pattern used by the user's geometric-controller project
+// instead of adding a Plane static LogStructure.
+//
+// LogStructure/FMT fields are intentionally split into two messages so that
+// each format stays within ArduPilot logger field/label limits.
+void Tiltrotor::dcptilt_write_log()
+{
+    const uint32_t now = AP_HAL::millis();
+    if (!dcptilt_enabled() || (now - dcptilt_last_log_ms < 40U)) {
+        return;
+    }
+    dcptilt_last_log_ms = now;
+
+    uint16_t tilt_pwm = 0;
+    SRV_Channels::get_output_pwm(SRV_Channel::k_motor_tilt, tilt_pwm);
+
+    float airspeed = 0.0f;
+    quadplane.ahrs.airspeed_estimate(airspeed);
+
+    float desired_alt_m = 0.0f;
+    if (plane.control_mode != &plane.mode_qstabilize) {
+        desired_alt_m = quadplane.pos_control->get_pos_target_z_cm() * 0.01f;
+    }
+
+    const uint8_t state = (transition != nullptr) ? transition->get_log_transition_state() : 0U;
+    const float fw_throttle = MAX(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle), 0.0f) * 0.01f;
+
+    // Core DCPTilt transition variables. 10 fields, labels length < 64.
+    AP::logger().Write(
+        "DCPT",
+        "TimeUS,St,Prog,Elap,TTot,TiltT,TiltC,TiltP,ASpd,GSpd",
+        "Qbffffffff",
+        AP_HAL::micros64(),
+        (int8_t)state,
+        dcptilt_progress,
+        dcptilt_elapsed_s,
+        dcptilt_transition_time_s.get(),
+        dcptilt_target_tilt * 90.0f,
+        current_tilt * 90.0f,
+        (float)tilt_pwm,
+        airspeed,
+        quadplane.ahrs.groundspeed());
+
+    // Auxiliary controller/flight-state variables. 9 fields, labels length < 64.
+    AP::logger().Write(
+        "DCPA",
+        "TimeUS,MCThr,FWThr,DAlt,Alt,AltE,Roll,Pitch,Ast",
+        "Qfffffffb",
+        AP_HAL::micros64(),
+        motors->get_throttle(),
+        fw_throttle,
+        desired_alt_m,
+        quadplane.inertial_nav.get_position_z_up_cm() * 0.01f,
+        plane.altitude_error_cm * 0.01f,
+        plane.ahrs.roll_sensor * 0.01f,
+        plane.ahrs.pitch_sensor * 0.01f,
+        (int8_t)quadplane.assisted_flight);
+}
+#endif
+
 // return the current tilt value that represents forward flight
 // tilt wings can sustain forward flight with some amount of wing tilt
 float Tiltrotor::get_fully_forward_tilt() const
@@ -246,6 +342,14 @@ void Tiltrotor::continuous_update(void)
             const uint16_t mask = is_zero(current_throttle)?0U:tilt_mask.get();
             motors->output_motor_mask(current_throttle, mask, plane.rudder_dt);
         }
+        return;
+    }
+
+    // During a DCPTilt forward transition the transition object owns the
+    // tilt target. Do not let the standard Q_TILT_RATE_* slew path overwrite it.
+    if (dcptilt_transition_active) {
+        current_throttle = motors->get_throttle();
+        dcptilt_set_tilt_direct(dcptilt_target_tilt);
         return;
     }
 
@@ -392,6 +496,10 @@ void Tiltrotor::update(void)
     if (type == TILT_TYPE_VECTORED_YAW) {
         vectoring();
     }
+
+#if HAL_LOGGING_ENABLED
+    dcptilt_write_log();
+#endif
 }
 
 /*
@@ -673,6 +781,151 @@ void Tiltrotor::bicopter_output(void)
 
     SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorLeft,  tilt_left);
     SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRight, tilt_right);
+}
+
+// Reset only the DCPTilt-owned state. The inherited transition state is
+// reset by the corresponding SLT transition method.
+void Tiltrotor_Transition::dcptilt_reset_state()
+{
+    tiltrotor.dcptilt_transition_active = false;
+    tiltrotor.dcptilt_transition_start_ms = 0;
+    tiltrotor.dcptilt_progress = 0.0f;
+    tiltrotor.dcptilt_elapsed_s = 0.0f;
+    tiltrotor.dcptilt_target_tilt = 0.0f;
+}
+
+void Tiltrotor_Transition::update()
+{
+    if (!tiltrotor.dcptilt_enabled()) {
+        SLT_Transition::update();
+        return;
+    }
+    dcptilt_update();
+}
+
+void Tiltrotor_Transition::VTOL_update()
+{
+    dcptilt_reset_state();
+    SLT_Transition::VTOL_update();
+}
+
+void Tiltrotor_Transition::force_transition_complete()
+{
+    dcptilt_reset_state();
+    SLT_Transition::force_transition_complete();
+}
+
+void Tiltrotor_Transition::restart()
+{
+    dcptilt_reset_state();
+    SLT_Transition::restart();
+}
+
+// DCPTilt v1 forward transition:
+//  * starts immediately on the first fixed-wing transition update
+//  * progress = elapsed / Q_TILT_DCPT_TIME
+//  * tilt follows dcptilt_tilt_profile(progress)
+//  * normal completion depends only on progress reaching 1
+//  * airspeed is monitoring only
+//  * ArduPlane's existing hold_stabilize/throttle blend is retained
+void Tiltrotor_Transition::dcptilt_update()
+{
+    const uint32_t now = AP_HAL::millis();
+
+    if (!plane.arming.is_armed_and_safety_off()) {
+        dcptilt_reset_state();
+        transition_state = TRANSITION_DONE;
+        in_forced_transition = false;
+        transition_start_ms = 0;
+        transition_low_airspeed_ms = 0;
+        quadplane.assisted_flight = false;
+        set_last_fw_pitch();
+        return;
+    }
+
+    if (transition_state == TRANSITION_DONE && !tiltrotor.dcptilt_transition_active) {
+        quadplane.assisted_flight = false;
+        if (!tiltrotor.motors_active()) {
+            quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
+            motors->output();
+        }
+        set_last_fw_pitch();
+        return;
+    }
+
+    if (!tiltrotor.dcptilt_transition_active) {
+        tiltrotor.dcptilt_transition_active = true;
+        tiltrotor.dcptilt_transition_start_ms = now;
+        tiltrotor.dcptilt_progress = 0.0f;
+        tiltrotor.dcptilt_elapsed_s = 0.0f;
+        tiltrotor.dcptilt_target_tilt = tiltrotor.dcptilt_tilt_profile(0.0f);
+
+        transition_state = TRANSITION_TIMER;
+        transition_start_ms = now;
+        transition_low_airspeed_ms = now;
+        airspeed_reached_tilt = tiltrotor.current_tilt;
+        last_throttle = motors->get_throttle();
+        in_forced_transition = false;
+
+        plane.pitchController.reset_I();
+        plane.rollController.reset_I();
+        quadplane.attitude_control->set_throttle_mix_max(1.0f);
+        gcs().send_text(MAV_SEVERITY_INFO, "DCPTilt transition start");
+    }
+
+    const float total_time_s = constrain_float(tiltrotor.dcptilt_transition_time_s.get(), 0.1f, 300.0f);
+    tiltrotor.dcptilt_elapsed_s = (now - tiltrotor.dcptilt_transition_start_ms) * 0.001f;
+    tiltrotor.dcptilt_progress = constrain_float(tiltrotor.dcptilt_elapsed_s / total_time_s, 0.0f, 1.0f);
+    tiltrotor.dcptilt_target_tilt = tiltrotor.dcptilt_tilt_profile(tiltrotor.dcptilt_progress);
+
+    // Update current_tilt before motors_output() so native tilt compensation
+    // sees the DCPTilt angle in the same control cycle.
+    tiltrotor.dcptilt_set_tilt_direct(tiltrotor.dcptilt_target_tilt);
+
+    plane.TECS_controller.use_synthetic_airspeed();
+    quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    const float transition_scale = 1.0f - tiltrotor.dcptilt_progress;
+    float throttle_scaled = last_throttle * transition_scale;
+    quadplane.attitude_control->set_throttle_mix_value(0.5f * transition_scale);
+
+    if (throttle_scaled < 0.01f) {
+        throttle_scaled = 0.01f;
+    }
+
+    if (!tiltrotor.has_vtol_motor() && !tiltrotor.has_fw_motor()) {
+        const float fully_forward_tilt = tiltrotor.get_fully_forward_tilt();
+        const float tilt_range = fully_forward_tilt - airspeed_reached_tilt;
+        float ratio = 1.0f;
+        if (tilt_range > 0.001f) {
+            ratio = (constrain_float(tiltrotor.current_tilt, airspeed_reached_tilt, fully_forward_tilt) - airspeed_reached_tilt) / tilt_range;
+        }
+        const float fw_throttle = MAX(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle), 0.0f) * 0.01f;
+        throttle_scaled = constrain_float(throttle_scaled * (1.0f - ratio) + fw_throttle * ratio, 0.0f, 1.0f);
+    }
+
+    quadplane.assisted_flight = true;
+    quadplane.hold_stabilize(throttle_scaled);
+
+    if (!tiltrotor.is_vectored()) {
+        quadplane.attitude_control->reset_yaw_target_and_rate();
+        quadplane.attitude_control->rate_bf_yaw_target(0.0f);
+    }
+
+    quadplane.motors_output();
+    set_last_fw_pitch();
+
+    if (tiltrotor.dcptilt_progress >= 1.0f) {
+        tiltrotor.dcptilt_target_tilt = 1.0f;
+        tiltrotor.dcptilt_set_tilt_direct(1.0f);
+        tiltrotor.dcptilt_transition_active = false;
+        transition_state = TRANSITION_DONE;
+        transition_start_ms = 0;
+        transition_low_airspeed_ms = 0;
+        in_forced_transition = false;
+        quadplane.assisted_flight = false;
+        gcs().send_text(MAV_SEVERITY_INFO, "DCPTilt transition done");
+    }
 }
 
 /*
