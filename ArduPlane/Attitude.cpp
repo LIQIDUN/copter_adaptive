@@ -188,14 +188,18 @@ float Plane::stabilize_pitch_get_pitch_out()
     // DCPTilt is active. RC/TECS throttle-to-pitch feed-forward is omitted.
     if (quadplane.tiltrotor.dcptilt_enabled() &&
         quadplane.tiltrotor.dcptilt_transition_active) {
-        pitchController.reset_I();
+        // The pitch integrator is reset once at DCPTilt transition entry
+        // in Tiltrotor_Transition::dcptilt_update(). Do not reset or
+        // disable it here: the fixed-wing pitch controller needs normal
+        // integral action to remove steady trim/aerodynamic bias while
+        // tracking the common DCPTilt altitude-hold pitch target.
         const int32_t demanded_pitch =
             quadplane.tiltrotor.dcptilt_fw_pitch_target_cd +
             int32_t(g.pitch_trim * 100.0f);
         return pitchController.get_servo_out(
             demanded_pitch - ahrs.pitch_sensor,
             speed_scaler,
-            true,
+            false,
             ground_mode &&
                 !(plane.flight_option_enabled(FlightOptions::DISABLE_GROUND_PID_SUPPRESSION)));
     }

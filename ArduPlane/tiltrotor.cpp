@@ -181,7 +181,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Range: 5 40
     // @Increment: 0.5
     // @User: Advanced
-    AP_GROUPINFO("DCPT_VLFT", 22, Tiltrotor, dcptilt_vlift_mps, 17.0f),
+    AP_GROUPINFO("DCPT_VLFT", 22, Tiltrotor, dcptilt_vlift_mps, 22.0f),
 
     // @Param: DCPT_CREG
     // @DisplayName: DCPTilt cosine regularizer
