@@ -224,6 +224,30 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_TGN", 27, Tiltrotor, dcptilt_terminal_gain, 1.0f),
 
+    // @Param: DCPT_YAWP
+    // @DisplayName: DCPTilt transition rudder heading P
+    // @Description: Rudder scaled-output gain per degree of heading error during DCPTilt. The rudder controller holds the heading captured at transition entry and is common to all 3x6 experiments.
+    // @Range: 0 400
+    // @Increment: 5
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_YAWP", 28, Tiltrotor, dcptilt_yaw_p, 100.0f),
+
+    // @Param: DCPT_YAWD
+    // @DisplayName: DCPTilt transition rudder yaw-rate damping
+    // @Description: Rudder scaled-output damping gain per deg/s of earth-frame yaw rate during DCPTilt. Positive yaw rate is subtracted from the heading correction.
+    // @Range: 0 500
+    // @Increment: 5
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_YAWD", 29, Tiltrotor, dcptilt_yaw_d, 150.0f),
+
+    // @Param: DCPT_YMAX
+    // @DisplayName: DCPTilt transition rudder limit
+    // @Description: Maximum absolute DCPTilt rudder command before the fixed-wing allocation weight is applied. ArduPlane scaled surface output uses 4500 as full deflection.
+    // @Range: 0 4500
+    // @Increment: 100
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_YMAX", 30, Tiltrotor, dcptilt_yaw_max, 3000.0f),
+
     AP_GROUPEND
 };
 
@@ -810,8 +834,9 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_terminal_blend,
         dcptilt_alt_control_error_m);
 
-    // Yaw diagnostics only; this does not change the yaw control law. YRaw is
-    // the MC yaw moment demand before MCW scaling and YWgt is after scaling.
+    // Yaw diagnostics. YRaw is the native multicopter yaw-moment demand and
+    // YWgt is the actually applied MC yaw demand. DCPTilt deliberately keeps
+    // yaw independent of the experimental MCW so YRaw and YWgt should match.
     const float yaw_target_deg = dcptilt_yaw_target_cd * 0.01f;
     const float yaw_deg = plane.ahrs.yaw_sensor * 0.01f;
     AP::logger().Write(
@@ -827,6 +852,22 @@ void Tiltrotor::dcptilt_write_log()
         yaw_deg,
         wrap_180(yaw_target_deg - yaw_deg),
         degrees(quadplane.ahrs.get_yaw_rate_earth()));
+
+    // Dedicated transition-rudder heading controller diagnostics. RudRaw is
+    // the PD command before the fixed-wing allocation weight, RudW is FWW,
+    // and RudOut is the command actually written to k_rudder.
+    AP::logger().Write(
+        "DCPR",
+        "TimeUS,YawT,Yaw,YErr,YRate,RudRaw,RudW,RudOut",
+        "Qfffffff",
+        AP_HAL::micros64(),
+        yaw_target_deg,
+        yaw_deg,
+        wrap_180(yaw_target_deg - yaw_deg),
+        degrees(quadplane.ahrs.get_yaw_rate_earth()),
+        dcptilt_rudder_raw,
+        dcptilt_rudder_weight,
+        dcptilt_rudder_output);
 
     // Post-transition handover and heading-lock diagnostics.
     AP::logger().Write(
@@ -1417,6 +1458,9 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_terminal_blend = 0.0f;
     tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
     tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
+    tiltrotor.dcptilt_rudder_raw = 0.0f;
+    tiltrotor.dcptilt_rudder_weight = 0.0f;
+    tiltrotor.dcptilt_rudder_output = 0.0f;
 
     tiltrotor.dcptilt_handover_active = false;
     tiltrotor.dcptilt_handover_start_ms = 0;
@@ -1534,6 +1578,9 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_terminal_blend = 0.0f;
         tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
         tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
+        tiltrotor.dcptilt_rudder_raw = 0.0f;
+        tiltrotor.dcptilt_rudder_weight = 0.0f;
+        tiltrotor.dcptilt_rudder_output = 0.0f;
 
         transition_state = TRANSITION_TIMER;
         transition_start_ms = now;

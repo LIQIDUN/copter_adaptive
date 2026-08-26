@@ -118,6 +118,12 @@ public:
     AP_Float dcptilt_terminal_window;
     AP_Float dcptilt_terminal_gain;
 
+    // Common DCPTilt transition-heading rudder controller. These parameters
+    // are not part of the 3x6 experimental allocation variables.
+    AP_Float dcptilt_yaw_p;
+    AP_Float dcptilt_yaw_d;
+    AP_Float dcptilt_yaw_max;
+
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
     uint32_t dcptilt_transition_start_ms = 0;
@@ -156,9 +162,14 @@ public:
     float dcptilt_terminal_error_m = 0.0f;
     float dcptilt_terminal_blend = 0.0f;
 
-    // Yaw diagnostic state captured around MCW scaling. No control-law change.
+    // Yaw diagnostic/control state. MC yaw is intentionally independent of
+    // the experimental MCW; the fixed-wing rudder independently holds the
+    // same transition-entry heading and is blended in with FWW.
     float dcptilt_mc_yaw_raw = 0.0f;
     float dcptilt_mc_yaw_weighted = 0.0f;
+    float dcptilt_rudder_raw = 0.0f;
+    float dcptilt_rudder_weight = 0.0f;
+    float dcptilt_rudder_output = 0.0f;
 
     // DCPTilt post-transition throttle handover. This is deliberately
     // separate from dcptilt_progress: the primary tilt transition still
