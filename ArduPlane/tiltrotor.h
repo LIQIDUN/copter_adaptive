@@ -71,6 +71,7 @@ public:
     void dcptilt_set_tilt_direct(float tilt);
     float dcptilt_capture_forward_output() const;
     void dcptilt_update_control_weights();
+    float dcptilt_fis_fww(float velocity_mps, float tilt_normalized) const;
     float dcptilt_strategy_speed() const;
     float dcptilt_lift_speed() const;
     void dcptilt_update_altitude_controller();
@@ -103,8 +104,8 @@ public:
     AP_Int8 dcptilt_profile;
 
     // DCPTilt common altitude / vertical-force controller parameters.
-    // These are shared by all 3x6 experiments so controller strategy and
-    // tilt profile remain the only experimental variables.
+    // These are shared by all controller-allocation / tilt-profile experiments
+    // so the selected strategy and tilt profile remain the intended variables.
     AP_Float dcptilt_alt_p;
     AP_Float dcptilt_alt_d;
     AP_Float dcptilt_accel_max;
@@ -132,7 +133,7 @@ public:
     float dcptilt_target_tilt = 0.0f;
 
     // DCPTilt controller-allocation state. These two coefficients reproduce
-    // the strategy logic used in the user's FUZZ / SWITCH / NMPC SITL code.
+    // the selected FUZZ / SWITCH / NMPC / FIS allocation strategy.
     float dcptilt_strategy_speed_mps = 0.0f;
     float dcptilt_mc_weight = 1.0f;
     float dcptilt_fw_weight = 0.0f;
@@ -197,7 +198,8 @@ public:
     enum DCPTiltMode : uint8_t {
         DCPT_MODE_FUZZ = 0,
         DCPT_MODE_SWITCH = 1,
-        DCPT_MODE_NMPC = 2
+        DCPT_MODE_NMPC = 2,
+        DCPT_MODE_FIS = 3
     };
 
     // DCPTilt tilt-profile selector

@@ -111,7 +111,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Param: DCPT_MODE
     // @DisplayName: DCPTilt controller allocation strategy
     // @Description: Selects the controller-allocation strategy used only during the DCPTilt forward transition.
-    // @Values: 0:FUZZ,1:SWITCH,2:NMPC
+    // @Values: 0:FUZZ,1:SWITCH,2:NMPC,3:FIS
     // @User: Advanced
     AP_GROUPINFO("DCPT_MODE", 14, Tiltrotor, dcptilt_mode, DCPT_MODE_FUZZ),
 
@@ -433,6 +433,175 @@ float Tiltrotor::dcptilt_tilt_profile(float progress) const
     }
 }
 
+// Membership functions used by TestTiltFuzzy.fis. Keep these local to this
+// translation unit so MODE=3 reproduces the supplied Mamdani FIS without
+// introducing a dependency on an external fuzzy-logic library.
+static float dcptilt_fis_linzmf(float x, float a, float b)
+{
+    if (x <= a) {
+        return 1.0f;
+    }
+    if (x >= b) {
+        return 0.0f;
+    }
+    return (b - x) / (b - a);
+}
+
+static float dcptilt_fis_linsmf(float x, float a, float b)
+{
+    if (x <= a) {
+        return 0.0f;
+    }
+    if (x >= b) {
+        return 1.0f;
+    }
+    return (x - a) / (b - a);
+}
+
+static float dcptilt_fis_zmf(float x, float a, float b)
+{
+    if (x <= a) {
+        return 1.0f;
+    }
+    if (x >= b) {
+        return 0.0f;
+    }
+
+    const float mid = 0.5f * (a + b);
+    const float span = b - a;
+    if (x <= mid) {
+        const float u = (x - a) / span;
+        return 1.0f - 2.0f * u * u;
+    }
+
+    const float u = (x - b) / span;
+    return 2.0f * u * u;
+}
+
+static float dcptilt_fis_smf(float x, float a, float b)
+{
+    if (x <= a) {
+        return 0.0f;
+    }
+    if (x >= b) {
+        return 1.0f;
+    }
+
+    const float mid = 0.5f * (a + b);
+    const float span = b - a;
+    if (x <= mid) {
+        const float u = (x - a) / span;
+        return 2.0f * u * u;
+    }
+
+    const float u = (x - b) / span;
+    return 1.0f - 2.0f * u * u;
+}
+
+static float dcptilt_fis_trimf(float x, float a, float b, float c)
+{
+    if (x <= a || x >= c) {
+        return 0.0f;
+    }
+    if (x <= b) {
+        return (x - a) / (b - a);
+    }
+    return (c - x) / (c - b);
+}
+
+static float dcptilt_fis_trapmf(float x, float a, float b, float c, float d)
+{
+    if (x <= a || x >= d) {
+        return 0.0f;
+    }
+    if (x >= b && x <= c) {
+        return 1.0f;
+    }
+    if (x < b) {
+        return (x - a) / (b - a);
+    }
+    return (d - x) / (d - c);
+}
+
+// Reproduce TestTiltFuzzy.fis exactly as a two-input Mamdani controller:
+//   Input1 Velocity  [0,30] m/s
+//   Input2 TiltAngle [0,1] (0=vertical, 1=fully forward)
+//   Output1 FWW      [0,1]
+// AND=min, implication=min, aggregation=max, defuzzification=centroid.
+// The centroid is evaluated on 101 uniformly spaced output samples y=0..1,
+// matching the intended MATLAB evalfis reference used for this project.
+float Tiltrotor::dcptilt_fis_fww(float velocity_mps, float tilt_normalized) const
+{
+    const float velocity = constrain_float(velocity_mps, 0.0f, 30.0f);
+    const float tilt = constrain_float(tilt_normalized, 0.0f, 1.0f);
+
+    // Input 1: Velocity.
+    const float v_slow = dcptilt_fis_zmf(velocity,
+                                         2.32224168126094f,
+                                         10.3222416812609f);
+    const float v_mid = dcptilt_fis_trapmf(velocity,
+                                           7.95973f,
+                                           11.6357f,
+                                           12.0f,
+                                           18.5727f);
+    const float v_fast = dcptilt_fis_smf(velocity,
+                                         10.5341506129597f,
+                                         15.5341506129597f);
+
+    // Input 2: normalized TiltAngle.
+    const float t_little = dcptilt_fis_linzmf(tilt, 0.0556f, 0.3333f);
+    const float t_mid = dcptilt_fis_trapmf(tilt,
+                                           0.138330777680141f,
+                                           0.282221277680141f,
+                                           0.306661277680141f,
+                                           0.518418277680141f);
+    const float t_high = dcptilt_fis_linsmf(tilt,
+                                             0.292601054481547f,
+                                             0.582601054481547f);
+
+    // Seven FIS rules, reduced only by max-combining rules that have the same
+    // consequent. This is algebraically identical to the supplied rule list.
+    const float alpha_quad = MIN(v_slow, t_little);
+    const float alpha_tilt = MAX(MIN(v_slow, t_mid),
+                                 MAX(MIN(v_mid, t_mid),
+                                     MIN(v_mid, t_little)));
+    const float alpha_fw = MAX(v_fast,
+                               MAX(MIN(v_slow, t_high),
+                                   MIN(v_mid, t_high)));
+
+    float numerator = 0.0f;
+    float denominator = 0.0f;
+
+    // Output MFs and 101-point centroid, y = 0.00, 0.01, ..., 1.00.
+    for (uint8_t i = 0; i <= 100; i++) {
+        const float y = 0.01f * i;
+
+        const float mu_quad = dcptilt_fis_linzmf(y, 0.0f, 0.4f);
+        const float mu_tilt = dcptilt_fis_trimf(y,
+                                                0.403339191564148f,
+                                                0.550966608084358f,
+                                                0.68804920913884f);
+        const float mu_fw = dcptilt_fis_linsmf(y, 0.7f, 1.0f);
+
+        const float implied_quad = MIN(alpha_quad, mu_quad);
+        const float implied_tilt = MIN(alpha_tilt, mu_tilt);
+        const float implied_fw = MIN(alpha_fw, mu_fw);
+        const float aggregated = MAX(implied_quad,
+                                     MAX(implied_tilt, implied_fw));
+
+        numerator += y * aggregated;
+        denominator += aggregated;
+    }
+
+    // The supplied input MFs cover the valid input domain. Keep a deterministic
+    // fallback for defensive robustness if the FIS is edited in the future.
+    if (denominator <= 1.0e-6f) {
+        return 0.5f;
+    }
+
+    return constrain_float(numerator / denominator, 0.0f, 1.0f);
+}
+
 // Reproduce the "current_airspeed = stateVel.length()" quantity from the
 // user's SITL strategy code. If NED velocity is unavailable, fall back to
 // ArduPlane's airspeed estimate and then groundspeed.
@@ -457,6 +626,7 @@ float Tiltrotor::dcptilt_strategy_speed() const
 // FUZZ:   3..15 m/s, fw=t^3, mc=1-fw
 // SWITCH: <=6 -> MC; 6..17 -> 0.5/0.5; >=17 -> FW
 // NMPC:   1..17 m/s, linear fw=t, mc=1-fw
+// FIS:    TestTiltFuzzy.fis Mamdani output1=FWW using Velocity + current tilt
 void Tiltrotor::dcptilt_update_control_weights()
 {
     dcptilt_strategy_speed_mps = dcptilt_strategy_speed();
@@ -514,6 +684,15 @@ void Tiltrotor::dcptilt_update_control_weights()
         }
         break;
     }
+
+    case DCPT_MODE_FIS:
+        // output1 in TestTiltFuzzy.fis is the fixed-wing authority FWW.
+        // Use ArduPilot's current normalized tilt state, not transition time,
+        // so the fuzzy allocation depends on the same physical quantities as
+        // the original FIS: Velocity and TiltAngle.
+        fw = dcptilt_fis_fww(dcptilt_strategy_speed_mps, current_tilt);
+        mc = 1.0f - fw;
+        break;
 
     default:
         mc = 1.0f;
@@ -801,6 +980,20 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_strategy_speed_mps,
         dcptilt_mc_weight,
         dcptilt_fw_weight);
+
+    // Extra diagnostics for the supplied two-input Mamdani FIS strategy.
+    // Kept in a separate message so the long-standing DCPW schema is unchanged.
+    if ((DCPTiltMode)dcptilt_mode.get() == DCPT_MODE_FIS) {
+        AP::logger().Write(
+            "DCPF",
+            "TimeUS,Vel,Tilt,FWW,MCW",
+            "Qffff",
+            AP_HAL::micros64(),
+            dcptilt_strategy_speed_mps,
+            current_tilt,
+            dcptilt_fw_weight,
+            dcptilt_mc_weight);
+    }
 
     // Common altitude / wing-lift / thrust allocation diagnostics.
     AP::logger().Write(
