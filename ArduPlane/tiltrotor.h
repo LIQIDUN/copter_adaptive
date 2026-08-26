@@ -115,6 +115,8 @@ public:
     AP_Float dcptilt_cos_regularizer;
     AP_Float dcptilt_lift_ratio_max;
     AP_Float dcptilt_thrust_filter_s;
+    AP_Float dcptilt_terminal_window;
+    AP_Float dcptilt_terminal_gain;
 
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
@@ -145,6 +147,23 @@ public:
     int32_t dcptilt_fw_pitch_target_cd = 0;
     bool dcptilt_thrust_saturated = false;
     uint32_t dcptilt_alt_last_ms = 0;
+
+    // Terminal-height predictor state. The raw altitude target/error above
+    // remain untouched for logging and experiment comparability.
+    float dcptilt_alt_control_error_m = 0.0f;
+    float dcptilt_terminal_time_remaining_s = 0.0f;
+    float dcptilt_terminal_pred_alt_m = 0.0f;
+    float dcptilt_terminal_error_m = 0.0f;
+    float dcptilt_terminal_blend = 0.0f;
+
+    // One-shot fixed-wing pitch-integrator release for terminal braking.
+    // The I term is still allowed to accumulate normally before and after
+    // this event; only the stale pre-braking history is cleared once.
+    bool dcptilt_terminal_pitch_i_released = false;
+
+    // Yaw diagnostic state captured around MCW scaling. No control-law change.
+    float dcptilt_mc_yaw_raw = 0.0f;
+    float dcptilt_mc_yaw_weighted = 0.0f;
 
     // DCPTilt post-transition throttle handover. This is deliberately
     // separate from dcptilt_progress: the primary tilt transition still

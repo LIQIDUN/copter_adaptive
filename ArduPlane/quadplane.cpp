@@ -2101,12 +2101,19 @@ void QuadPlane::motors_output(bool run_rate_controller)
         // boundary so the standard ArduPlane/AP_Motors mixer is retained.
         if (tiltrotor.dcptilt_enabled() && tiltrotor.dcptilt_transition_active) {
             const float mc_weight = constrain_float(tiltrotor.dcptilt_mc_weight, 0.0f, 1.0f);
+
+            // Diagnostics: capture the yaw moment request before and after the
+            // experimental MCW multiplier. This does not alter the allocation.
+            tiltrotor.dcptilt_mc_yaw_raw = motors->get_yaw() + motors->get_yaw_ff();
+
             motors->set_roll(motors->get_roll() * mc_weight);
             motors->set_roll_ff(motors->get_roll_ff() * mc_weight);
             motors->set_pitch(motors->get_pitch() * mc_weight);
             motors->set_pitch_ff(motors->get_pitch_ff() * mc_weight);
             motors->set_yaw(motors->get_yaw() * mc_weight);
             motors->set_yaw_ff(motors->get_yaw_ff() * mc_weight);
+
+            tiltrotor.dcptilt_mc_yaw_weighted = motors->get_yaw() + motors->get_yaw_ff();
         }
 
         last_att_control_ms = now;

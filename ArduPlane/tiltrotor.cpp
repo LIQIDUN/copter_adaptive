@@ -208,6 +208,22 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_TFLT", 25, Tiltrotor, dcptilt_thrust_filter_s, 0.15f),
 
+    // @Param: DCPT_TWIN
+    // @DisplayName: DCPTilt terminal predictor window
+    // @Description: Fraction of the DCPTilt transition duration over which the terminal-height predictor is blended in. The predictor estimates end altitude as h+Vz*t_remaining and is shared by all controller-allocation strategies and tilt profiles.
+    // @Range: 0.05 0.50
+    // @Increment: 0.01
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TWIN", 26, Tiltrotor, dcptilt_terminal_window, 0.25f),
+
+    // @Param: DCPT_TGN
+    // @DisplayName: DCPTilt terminal predictor gain
+    // @Description: Dimensionless gain applied to predicted terminal-height error before it is added to the normal altitude error. Zero disables terminal correction. A value of 1 uses the full predicted end-height error.
+    // @Range: 0 3
+    // @Increment: 0.05
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TGN", 27, Tiltrotor, dcptilt_terminal_gain, 1.0f),
+
     AP_GROUPEND
 };
 
@@ -529,9 +545,43 @@ void Tiltrotor::dcptilt_update_altitude_controller()
 
     dcptilt_alt_error_m = dcptilt_alt_target_m - dcptilt_altitude_m;
 
+    // Common terminal-height predictor for all 3x6 experiments. The raw
+    // altitude reference never changes. During only the final portion of the
+    // scheduled transition we predict where the aircraft would finish if the
+    // current vertical speed persisted:
+    //
+    //   h_end_pred = h + Vz * t_remaining
+    //   e_terminal = h_ref - h_end_pred
+    //
+    // A smoothstep blend adds this predicted terminal error to the ordinary
+    // altitude error. The resulting control error is then used by BOTH the
+    // rotor vertical-force branch and the fixed-wing pitch branch below.
+    // This keeps the terminal constraint common to FUZZ/SWITCH/NMPC and to
+    // all six tilt profiles rather than tuning a separate controller per case.
+    const float total_time_s = constrain_float(dcptilt_transition_time_s.get(), 0.1f, 300.0f);
+    dcptilt_terminal_time_remaining_s = MAX(total_time_s - dcptilt_elapsed_s, 0.0f);
+    dcptilt_terminal_pred_alt_m =
+        dcptilt_altitude_m + dcptilt_vz_up_mps * dcptilt_terminal_time_remaining_s;
+    dcptilt_terminal_error_m =
+        dcptilt_alt_target_m - dcptilt_terminal_pred_alt_m;
+
+    const float terminal_window =
+        constrain_float(dcptilt_terminal_window.get(), 0.05f, 0.50f);
+    const float terminal_start = 1.0f - terminal_window;
+    const float terminal_phase = constrain_float(
+        (dcptilt_progress - terminal_start) / terminal_window,
+        0.0f, 1.0f);
+    dcptilt_terminal_blend =
+        terminal_phase * terminal_phase * (3.0f - 2.0f * terminal_phase);
+
+    const float terminal_gain = MAX(dcptilt_terminal_gain.get(), 0.0f);
+    dcptilt_alt_control_error_m =
+        dcptilt_alt_error_m +
+        dcptilt_terminal_blend * terminal_gain * dcptilt_terminal_error_m;
+
     const float accel_limit = MAX(dcptilt_accel_max.get(), 0.1f);
     dcptilt_accel_up_cmd_mss = constrain_float(
-        dcptilt_alt_p.get() * dcptilt_alt_error_m -
+        dcptilt_alt_p.get() * dcptilt_alt_control_error_m -
         dcptilt_alt_d.get() * dcptilt_vz_up_mps,
         -accel_limit, accel_limit);
 
@@ -593,7 +643,7 @@ void Tiltrotor::dcptilt_update_altitude_controller()
     const float pitch_limit_deg =
         constrain_float(dcptilt_fw_pitch_max_deg.get(), 1.0f, 45.0f);
     const float pitch_target_deg = constrain_float(
-        dcptilt_fw_alt_p.get() * dcptilt_alt_error_m -
+        dcptilt_fw_alt_p.get() * dcptilt_alt_control_error_m -
         dcptilt_fw_alt_d.get() * dcptilt_vz_up_mps,
         -pitch_limit_deg, pitch_limit_deg);
     dcptilt_fw_pitch_target_cd =
@@ -745,6 +795,40 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_throttle_cmd,
         dcptilt_fw_pitch_target_cd * 0.01f,
         (int8_t)dcptilt_thrust_saturated);
+
+    // Terminal-height predictor diagnostics. Raw AltE in DCPZ is retained
+    // unchanged; CErr is the predictor-augmented error actually used by both
+    // altitude-control branches. IRel latches high after the one-shot terminal
+    // Pitch-I release, so the exact braking handoff is visible in the BIN log.
+    AP::logger().Write(
+        "DCPX",
+        "TimeUS,Rem,Pred,TErr,TW,CErr,IRel",
+        "Qfffffb",
+        AP_HAL::micros64(),
+        dcptilt_terminal_time_remaining_s,
+        dcptilt_terminal_pred_alt_m,
+        dcptilt_terminal_error_m,
+        dcptilt_terminal_blend,
+        dcptilt_alt_control_error_m,
+        (int8_t)dcptilt_terminal_pitch_i_released);
+
+    // Yaw diagnostics only; this does not change the yaw control law. YRaw is
+    // the MC yaw moment demand before MCW scaling and YWgt is after scaling.
+    const float yaw_target_deg = dcptilt_yaw_target_cd * 0.01f;
+    const float yaw_deg = plane.ahrs.yaw_sensor * 0.01f;
+    AP::logger().Write(
+        "DCPY",
+        "TimeUS,Tilt,MCW,YRaw,YWgt,YawT,Yaw,YErr,YRate",
+        "Qffffffff",
+        AP_HAL::micros64(),
+        current_tilt * 90.0f,
+        dcptilt_mc_weight,
+        dcptilt_mc_yaw_raw,
+        dcptilt_mc_yaw_weighted,
+        yaw_target_deg,
+        yaw_deg,
+        wrap_180(yaw_target_deg - yaw_deg),
+        degrees(quadplane.ahrs.get_yaw_rate_earth()));
 
     // Post-transition handover and heading-lock diagnostics.
     AP::logger().Write(
@@ -1328,6 +1412,14 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_fw_pitch_target_cd = 0;
     tiltrotor.dcptilt_thrust_saturated = false;
     tiltrotor.dcptilt_alt_last_ms = 0;
+    tiltrotor.dcptilt_alt_control_error_m = 0.0f;
+    tiltrotor.dcptilt_terminal_time_remaining_s = 0.0f;
+    tiltrotor.dcptilt_terminal_pred_alt_m = 0.0f;
+    tiltrotor.dcptilt_terminal_error_m = 0.0f;
+    tiltrotor.dcptilt_terminal_blend = 0.0f;
+    tiltrotor.dcptilt_terminal_pitch_i_released = false;
+    tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
+    tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
 
     tiltrotor.dcptilt_handover_active = false;
     tiltrotor.dcptilt_handover_start_ms = 0;
@@ -1437,6 +1529,15 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_fw_pitch_target_cd = 0;
         tiltrotor.dcptilt_thrust_saturated = false;
         tiltrotor.dcptilt_alt_last_ms = 0;
+        tiltrotor.dcptilt_alt_control_error_m = 0.0f;
+        tiltrotor.dcptilt_terminal_time_remaining_s =
+            tiltrotor.dcptilt_transition_time_s.get();
+        tiltrotor.dcptilt_terminal_pred_alt_m = tiltrotor.dcptilt_alt_target_m;
+        tiltrotor.dcptilt_terminal_error_m = 0.0f;
+        tiltrotor.dcptilt_terminal_blend = 0.0f;
+        tiltrotor.dcptilt_terminal_pitch_i_released = false;
+        tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
+        tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
 
         transition_state = TRANSITION_TIMER;
         transition_start_ms = now;
@@ -1469,6 +1570,29 @@ void Tiltrotor_Transition::dcptilt_update()
     // DCPTilt is active, so there is no second 1/cos compensation.
     tiltrotor.dcptilt_set_tilt_direct(tiltrotor.dcptilt_target_tilt);
     tiltrotor.dcptilt_update_altitude_controller();
+
+    // Terminal Pitch-I release. 00000158.BIN showed that the positive pitch
+    // integrator accumulated while recovering the early altitude loss and then
+    // nearly cancelled the negative P+FF command once the terminal predictor
+    // asked the aircraft to brake its climb. Clear that stale history exactly
+    // once when the shared terminal predictor is active, the aircraft is still
+    // climbing, and the common altitude loop has already reversed to a
+    // downward-acceleration request. Normal pitch integration resumes
+    // immediately on following controller updates.
+    const bool terminal_predictor_active =
+        (tiltrotor.dcptilt_terminal_gain.get() > 0.0f) &&
+        (tiltrotor.dcptilt_terminal_blend > 0.0f);
+    if (!tiltrotor.dcptilt_terminal_pitch_i_released &&
+        terminal_predictor_active &&
+        tiltrotor.dcptilt_vz_up_mps > 0.0f &&
+        tiltrotor.dcptilt_accel_up_cmd_mss < 0.0f) {
+        plane.pitchController.reset_I();
+        tiltrotor.dcptilt_terminal_pitch_i_released = true;
+        gcs().send_text(
+            MAV_SEVERITY_INFO,
+            "DCPTilt terminal Pitch-I release t=%.2f",
+            (double)tiltrotor.dcptilt_elapsed_s);
+    }
 
     plane.TECS_controller.use_synthetic_airspeed();
     quadplane.set_desired_spool_state(
