@@ -156,11 +156,6 @@ public:
     float dcptilt_terminal_error_m = 0.0f;
     float dcptilt_terminal_blend = 0.0f;
 
-    // One-shot fixed-wing pitch-integrator release for terminal braking.
-    // The I term is still allowed to accumulate normally before and after
-    // this event; only the stale pre-braking history is cleared once.
-    bool dcptilt_terminal_pitch_i_released = false;
-
     // Yaw diagnostic state captured around MCW scaling. No control-law change.
     float dcptilt_mc_yaw_raw = 0.0f;
     float dcptilt_mc_yaw_weighted = 0.0f;

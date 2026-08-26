@@ -798,19 +798,17 @@ void Tiltrotor::dcptilt_write_log()
 
     // Terminal-height predictor diagnostics. Raw AltE in DCPZ is retained
     // unchanged; CErr is the predictor-augmented error actually used by both
-    // altitude-control branches. IRel latches high after the one-shot terminal
-    // Pitch-I release, so the exact braking handoff is visible in the BIN log.
+    // altitude-control branches.
     AP::logger().Write(
         "DCPX",
-        "TimeUS,Rem,Pred,TErr,TW,CErr,IRel",
-        "Qfffffb",
+        "TimeUS,Rem,Pred,TErr,TW,CErr",
+        "Qfffff",
         AP_HAL::micros64(),
         dcptilt_terminal_time_remaining_s,
         dcptilt_terminal_pred_alt_m,
         dcptilt_terminal_error_m,
         dcptilt_terminal_blend,
-        dcptilt_alt_control_error_m,
-        (int8_t)dcptilt_terminal_pitch_i_released);
+        dcptilt_alt_control_error_m);
 
     // Yaw diagnostics only; this does not change the yaw control law. YRaw is
     // the MC yaw moment demand before MCW scaling and YWgt is after scaling.
@@ -1417,7 +1415,6 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_terminal_pred_alt_m = 0.0f;
     tiltrotor.dcptilt_terminal_error_m = 0.0f;
     tiltrotor.dcptilt_terminal_blend = 0.0f;
-    tiltrotor.dcptilt_terminal_pitch_i_released = false;
     tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
     tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
 
@@ -1535,7 +1532,6 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_terminal_pred_alt_m = tiltrotor.dcptilt_alt_target_m;
         tiltrotor.dcptilt_terminal_error_m = 0.0f;
         tiltrotor.dcptilt_terminal_blend = 0.0f;
-        tiltrotor.dcptilt_terminal_pitch_i_released = false;
         tiltrotor.dcptilt_mc_yaw_raw = 0.0f;
         tiltrotor.dcptilt_mc_yaw_weighted = 0.0f;
 
@@ -1570,29 +1566,6 @@ void Tiltrotor_Transition::dcptilt_update()
     // DCPTilt is active, so there is no second 1/cos compensation.
     tiltrotor.dcptilt_set_tilt_direct(tiltrotor.dcptilt_target_tilt);
     tiltrotor.dcptilt_update_altitude_controller();
-
-    // Terminal Pitch-I release. 00000158.BIN showed that the positive pitch
-    // integrator accumulated while recovering the early altitude loss and then
-    // nearly cancelled the negative P+FF command once the terminal predictor
-    // asked the aircraft to brake its climb. Clear that stale history exactly
-    // once when the shared terminal predictor is active, the aircraft is still
-    // climbing, and the common altitude loop has already reversed to a
-    // downward-acceleration request. Normal pitch integration resumes
-    // immediately on following controller updates.
-    const bool terminal_predictor_active =
-        (tiltrotor.dcptilt_terminal_gain.get() > 0.0f) &&
-        (tiltrotor.dcptilt_terminal_blend > 0.0f);
-    if (!tiltrotor.dcptilt_terminal_pitch_i_released &&
-        terminal_predictor_active &&
-        tiltrotor.dcptilt_vz_up_mps > 0.0f &&
-        tiltrotor.dcptilt_accel_up_cmd_mss < 0.0f) {
-        plane.pitchController.reset_I();
-        tiltrotor.dcptilt_terminal_pitch_i_released = true;
-        gcs().send_text(
-            MAV_SEVERITY_INFO,
-            "DCPTilt terminal Pitch-I release t=%.2f",
-            (double)tiltrotor.dcptilt_elapsed_s);
-    }
 
     plane.TECS_controller.use_synthetic_airspeed();
     quadplane.set_desired_spool_state(
