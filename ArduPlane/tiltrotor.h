@@ -125,6 +125,14 @@ public:
     AP_Float dcptilt_yaw_d;
     AP_Float dcptilt_yaw_max;
 
+    // Strategy-specific experimental parameters. SWITCH keeps the historical
+    // three-state weights but exposes both speed thresholds. Fake NMPC reuses
+    // MODE=3 FIS allocation and adds only the historical nose-up transient.
+    AP_Float dcptilt_switch_low_mps;
+    AP_Float dcptilt_switch_high_mps;
+    AP_Float dcptilt_nmpc_pitch_gain_deg;
+    AP_Float dcptilt_nmpc_pitch_max_deg;
+
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
     uint32_t dcptilt_transition_start_ms = 0;
@@ -152,6 +160,9 @@ public:
     float dcptilt_throttle_raw = 0.0f;
     float dcptilt_throttle_cmd = 0.0f;
     int32_t dcptilt_fw_pitch_target_cd = 0;
+    float dcptilt_fw_pitch_base_deg = 0.0f;
+    float dcptilt_nmpc_pitch_shape = 0.0f;
+    float dcptilt_nmpc_pitch_bias_deg = 0.0f;
     bool dcptilt_thrust_saturated = false;
     uint32_t dcptilt_alt_last_ms = 0;
 
