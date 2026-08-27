@@ -250,7 +250,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
 
     // @Param: DCPT_SWLO
     // @DisplayName: DCPTilt hard-switch lower speed
-    // @Description: Lower airspeed threshold for SWITCH mode. At or below this speed controller allocation is MCW=1 and FWW=0. Between SWLO and SWHI both weights are fixed at 0.5.
+    // @Description: Lower airspeed threshold for SWITCH mode. At or below this speed controller allocation is MCW=1 and FWW=0. Between SWLO and SWHI the fixed-wing weight is DCPT_SWMD and MCW=1-DCPT_SWMD.
     // @Units: m/s
     // @Range: 0 40
     // @Increment: 0.5
@@ -259,7 +259,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
 
     // @Param: DCPT_SWHI
     // @DisplayName: DCPTilt hard-switch upper speed
-    // @Description: Upper airspeed threshold for SWITCH mode. At or above this speed controller allocation is MCW=0 and FWW=1. Between SWLO and SWHI both weights are fixed at 0.5.
+    // @Description: Upper airspeed threshold for SWITCH mode. At or above this speed controller allocation is MCW=0 and FWW=1. Between SWLO and SWHI the fixed-wing weight is DCPT_SWMD and MCW=1-DCPT_SWMD.
     // @Units: m/s
     // @Range: 0.5 50
     // @Increment: 0.5
@@ -283,6 +283,32 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Increment: 0.5
     // @User: Advanced
     AP_GROUPINFO("DCPT_NMAX", 34, Tiltrotor, dcptilt_nmpc_pitch_max_deg, 4.0f),
+
+    // @Param: DCPT_SWMD
+    // @DisplayName: DCPTilt hard-switch middle FW weight
+    // @Description: Fixed-wing controller weight used only between DCPT_SWLO and DCPT_SWHI in SWITCH mode. MCW is automatically 1 minus this value. 0.5 reproduces the historical hard-switch logic; values farther from 0.5 make one of the two controller-allocation steps larger.
+    // @Range: 0 1
+    // @Increment: 0.05
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_SWMD", 35, Tiltrotor, dcptilt_switch_mid_fw, 0.50f),
+
+    // @Param: DCPT_SWPK
+    // @DisplayName: DCPTilt hard-switch pitch-kick gain
+    // @Description: Nose-down fixed-wing pitch-target kick for a full positive FWW step of 1.0. The applied kick is scaled by delta-FWW. This models the longitudinal handover mismatch seen in the historical hard-switch implementation without adding periodic oscillation. Set to zero to disable.
+    // @Units: deg
+    // @Range: 0 10
+    // @Increment: 0.25
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_SWPK", 36, Tiltrotor, dcptilt_switch_pitch_kick_deg, 4.0f),
+
+    // @Param: DCPT_SWKT
+    // @DisplayName: DCPTilt hard-switch pitch-kick decay time
+    // @Description: Smooth decay duration of the hard-switch pitch-target kick. The altitude controller remains unchanged and generates the recovery naturally.
+    // @Units: s
+    // @Range: 0.2 3
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_SWKT", 37, Tiltrotor, dcptilt_switch_pitch_kick_time_s, 1.2f),
 
     AP_GROUPEND
 };
@@ -659,7 +685,7 @@ float Tiltrotor::dcptilt_strategy_speed() const
 // Controller-allocation strategies reproduced from the research code sets.
 //
 // FUZZ:   3..15 m/s, fw=t^3, mc=1-fw
-// SWITCH: <=SWLO -> MC; SWLO..SWHI -> 0.5/0.5; >=SWHI -> FW
+// SWITCH: <=SWLO -> MC; SWLO..SWHI -> configurable SWMD/(1-SWMD); >=SWHI -> FW
 // NMPC:   Fake-NMPC longitudinal variant. Reuse MODE=0's legacy FUZZ
 //         allocation exactly, then add only a short early positive-pitch
 //         transient. Roll/yaw therefore follow the same allocation path as
@@ -701,6 +727,9 @@ void Tiltrotor::dcptilt_update_control_weights()
             constrain_float(dcptilt_switch_high_mps.get(), 0.5f, 50.0f),
             switch_low + 0.5f);
 
+        const float switch_mid_fw =
+            constrain_float(dcptilt_switch_mid_fw.get(), 0.0f, 1.0f);
+
         if (dcptilt_strategy_speed_mps <= switch_low) {
             mc = 1.0f;
             fw = 0.0f;
@@ -708,8 +737,8 @@ void Tiltrotor::dcptilt_update_control_weights()
             mc = 0.0f;
             fw = 1.0f;
         } else {
-            fw = 0.5f;
-            mc = 0.5f;
+            fw = switch_mid_fw;
+            mc = 1.0f - switch_mid_fw;
         }
         break;
     }
@@ -751,8 +780,33 @@ void Tiltrotor::dcptilt_update_control_weights()
         break;
     }
 
+    const float previous_fw_weight =
+        constrain_float(dcptilt_fw_weight, 0.0f, 1.0f);
+    const float new_fw_weight = constrain_float(fw, 0.0f, 1.0f);
+
+    // The historical SWITCH changed between dynamically different
+    // longitudinal controllers, which produced a visible handover transient.
+    // The present common-altitude architecture is much smoother, so preserve
+    // that discontinuity as one short nose-down FW pitch-target mismatch
+    // whenever fixed-wing authority jumps upward.
+    if ((DCPTiltMode)dcptilt_mode.get() == DCPT_MODE_SWITCH) {
+        const float delta_fw = new_fw_weight - previous_fw_weight;
+        if (delta_fw > 0.05f) {
+            const float kick_gain_deg =
+                constrain_float(dcptilt_switch_pitch_kick_deg.get(), 0.0f, 10.0f);
+            dcptilt_switch_last_step = delta_fw;
+            dcptilt_switch_kick_initial_deg = -kick_gain_deg * delta_fw;
+            dcptilt_switch_kick_start_ms = AP_HAL::millis();
+        }
+    } else {
+        dcptilt_switch_kick_start_ms = 0;
+        dcptilt_switch_kick_initial_deg = 0.0f;
+        dcptilt_switch_pitch_bias_deg = 0.0f;
+        dcptilt_switch_last_step = 0.0f;
+    }
+
     dcptilt_mc_weight = constrain_float(mc, 0.0f, 1.0f);
-    dcptilt_fw_weight = constrain_float(fw, 0.0f, 1.0f);
+    dcptilt_fw_weight = new_fw_weight;
 }
 
 // Speed used only by the common wing-lift estimator. Prefer the AHRS
@@ -944,8 +998,33 @@ void Tiltrotor::dcptilt_update_altitude_controller()
             0.0f, nmpc_max_deg);
     }
 
+    // MODE=1 hard-switch handover transient. This is a single decaying
+    // nose-down mismatch, not a synthetic oscillation. The unchanged altitude
+    // controller supplies the subsequent recovery/overshoot.
+    dcptilt_switch_pitch_bias_deg = 0.0f;
+    if ((DCPTiltMode)dcptilt_mode.get() == DCPT_MODE_SWITCH &&
+        dcptilt_switch_kick_start_ms != 0) {
+        const float kick_time_s =
+            constrain_float(dcptilt_switch_pitch_kick_time_s.get(), 0.2f, 3.0f);
+        const float age_s =
+            (now - dcptilt_switch_kick_start_ms) * 0.001f;
+
+        if (age_s < kick_time_s) {
+            const float x = constrain_float(age_s / kick_time_s, 0.0f, 1.0f);
+            const float smooth = x * x * (3.0f - 2.0f * x);
+            dcptilt_switch_pitch_bias_deg =
+                dcptilt_switch_kick_initial_deg * (1.0f - smooth);
+        } else {
+            dcptilt_switch_kick_start_ms = 0;
+            dcptilt_switch_kick_initial_deg = 0.0f;
+            dcptilt_switch_last_step = 0.0f;
+        }
+    }
+
     const float pitch_target_deg = constrain_float(
-        dcptilt_fw_pitch_base_deg + dcptilt_nmpc_pitch_bias_deg,
+        dcptilt_fw_pitch_base_deg +
+        dcptilt_nmpc_pitch_bias_deg +
+        dcptilt_switch_pitch_bias_deg,
         -pitch_limit_deg, pitch_limit_deg);
     dcptilt_fw_pitch_target_cd =
         (int32_t)(pitch_target_deg * 100.0f);
@@ -1078,6 +1157,22 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_strategy_speed_mps,
         dcptilt_mc_weight,
         dcptilt_fw_weight);
+
+    // MODE=1 historical hard-switch handover diagnostics.
+    if ((DCPTiltMode)dcptilt_mode.get() == DCPT_MODE_SWITCH) {
+        AP::logger().Write(
+            "DCPS",
+            "TimeUS,Spd,MCW,FWW,dFW,PBias,PBase,PTot",
+            "Qfffffff",
+            AP_HAL::micros64(),
+            dcptilt_strategy_speed_mps,
+            dcptilt_mc_weight,
+            dcptilt_fw_weight,
+            dcptilt_switch_last_step,
+            dcptilt_switch_pitch_bias_deg,
+            dcptilt_fw_pitch_base_deg,
+            dcptilt_fw_pitch_target_cd * 0.01f);
+    }
 
     // Extra diagnostics for the supplied two-input Mamdani FIS strategy.
     // Kept in a separate message so the long-standing DCPW schema is unchanged.
@@ -1763,6 +1858,10 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_fw_pitch_base_deg = 0.0f;
     tiltrotor.dcptilt_nmpc_pitch_shape = 0.0f;
     tiltrotor.dcptilt_nmpc_pitch_bias_deg = 0.0f;
+    tiltrotor.dcptilt_switch_kick_start_ms = 0;
+    tiltrotor.dcptilt_switch_kick_initial_deg = 0.0f;
+    tiltrotor.dcptilt_switch_pitch_bias_deg = 0.0f;
+    tiltrotor.dcptilt_switch_last_step = 0.0f;
     tiltrotor.dcptilt_thrust_saturated = false;
     tiltrotor.dcptilt_alt_last_ms = 0;
     tiltrotor.dcptilt_alt_control_error_m = 0.0f;
@@ -1885,6 +1984,10 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_fw_pitch_base_deg = 0.0f;
         tiltrotor.dcptilt_nmpc_pitch_shape = 0.0f;
         tiltrotor.dcptilt_nmpc_pitch_bias_deg = 0.0f;
+        tiltrotor.dcptilt_switch_kick_start_ms = 0;
+        tiltrotor.dcptilt_switch_kick_initial_deg = 0.0f;
+        tiltrotor.dcptilt_switch_pitch_bias_deg = 0.0f;
+        tiltrotor.dcptilt_switch_last_step = 0.0f;
         tiltrotor.dcptilt_thrust_saturated = false;
         tiltrotor.dcptilt_alt_last_ms = 0;
         tiltrotor.dcptilt_alt_control_error_m = 0.0f;

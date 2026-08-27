@@ -126,10 +126,14 @@ public:
     AP_Float dcptilt_yaw_max;
 
     // Strategy-specific experimental parameters. SWITCH keeps the historical
-    // three-state weights but exposes both speed thresholds. Fake NMPC reuses
-    // MODE=3 FIS allocation and adds only the historical nose-up transient.
+    // three-state weights, exposes both speed thresholds, and makes the middle
+    // fixed-wing weight configurable. Fake NMPC reuses MODE=0 legacy FUZZ
+    // allocation and adds only the early longitudinal nose-up transient.
     AP_Float dcptilt_switch_low_mps;
     AP_Float dcptilt_switch_high_mps;
+    AP_Float dcptilt_switch_mid_fw;
+    AP_Float dcptilt_switch_pitch_kick_deg;
+    AP_Float dcptilt_switch_pitch_kick_time_s;
     AP_Float dcptilt_nmpc_pitch_gain_deg;
     AP_Float dcptilt_nmpc_pitch_max_deg;
 
@@ -163,6 +167,13 @@ public:
     float dcptilt_fw_pitch_base_deg = 0.0f;
     float dcptilt_nmpc_pitch_shape = 0.0f;
     float dcptilt_nmpc_pitch_bias_deg = 0.0f;
+
+    // MODE=1 historical hard-switch handover transient.
+    uint32_t dcptilt_switch_kick_start_ms = 0;
+    float dcptilt_switch_kick_initial_deg = 0.0f;
+    float dcptilt_switch_pitch_bias_deg = 0.0f;
+    float dcptilt_switch_last_step = 0.0f;
+
     bool dcptilt_thrust_saturated = false;
     uint32_t dcptilt_alt_last_ms = 0;
 
