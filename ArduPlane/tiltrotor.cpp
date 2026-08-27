@@ -311,6 +311,23 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_SWKT", 37, Tiltrotor, dcptilt_switch_pitch_kick_time_s, 1.2f),
 
+    // @Param: DCPT_TD3S
+    // @DisplayName: DCPTilt TD3 tilt-rate scale
+    // @Description: Scale applied to the TD3 actor Sigmoid output to obtain normalized tilt rate for profiles 6 through 8. lambda_dot = TD3S * actor_output. The result is integrated at 20 Hz. Default 0.084 reproduces the original candidate scale.
+    // @Units: 1/s
+    // @Range: 0 1
+    // @Increment: 0.001
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TD3S", 38, Tiltrotor, dcptilt_td3_rate_scale, 0.084f),
+
+    // @Param: DCPT_TD3D
+    // @DisplayName: DCPTilt TD3 diagnostic mode
+    // @Description: Temporary TD3 diagnostic selector for profiles 6 through 8. 0=current Z-up Eh, 1=NED-sign Eh, 2=force Eh=0, 3=force actor output=0.4 while preserving/logging normal observations. Use only for A/B diagnosis.
+    // @Values: 0:NormalZUp,1:NEDSign,2:ZeroEh,3:FixedOut04
+    // @Range: 0 3
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TD3D", 39, Tiltrotor, dcptilt_td3_diag_mode, 0),
+
     AP_GROUPEND
 };
 
@@ -500,7 +517,6 @@ namespace {
 
 static constexpr uint32_t DCPTILT_TD3_PERIOD_MS = 50U;
 static constexpr float DCPTILT_TD3_DT_S = 0.05f;
-static constexpr float DCPTILT_TD3_RATE_SCALE = 0.084f;
 
 float dcptilt_td3_actor_forward(uint8_t actor_index,
                                 float eh_m,
@@ -543,8 +559,8 @@ float dcptilt_td3_actor_forward(uint8_t actor_index,
 } // namespace
 
 // PROF=6..8: incremental TD3 closed-loop tilt trajectory.
-// x = [h-h_ref, V/30, mean normalized actual motor PWM].
-// lambda_dot = 0.084 * actor_output
+// x = [h-h_ref, 1.2*V/20, DCPTilt normalized motor-thrust command + 0.3858].
+// lambda_dot = Q_TILT_DCPT_TD3S * actor_output
 // lambda(k+1) = constrain(lambda(k) + lambda_dot*0.05, 0, 1)
 float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
 {
@@ -567,20 +583,60 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
 
     const float altitude_m =
         quadplane.inertial_nav.get_position_z_up_cm() * 0.01f;
-    dcptilt_td3_eh_m =
+
+    // Diagnostic Eh selector.
+    //
+    // mode 0: current ArduPilot Z-up convention
+    //         Eh = h_actual - h_ref
+    //
+    // mode 1: NED-z convention used by the original policy if its error was
+    //         formed directly as z_actual - z_ref. Since z_NED = -h_up:
+    //         Eh = h_ref - h_actual
+    //
+    // mode 2: force Eh=0 to isolate the height-error observation.
+    //
+    // mode 3: keep normal Eh here; actor output is overridden below.
+    const int8_t td3_diag_mode =
+        constrain_int16(dcptilt_td3_diag_mode.get(), 0, 3);
+
+    const float eh_zup =
         dcptilt_alt_target_valid ? (altitude_m - dcptilt_alt_target_m) : 0.0f;
 
-    dcptilt_td3_vnorm = constrain_float(
-        MAX(dcptilt_strategy_speed(), 0.0f) / 30.0f,
+    if (td3_diag_mode == 1) {
+        dcptilt_td3_eh_m = -eh_zup;
+    } else if (td3_diag_mode == 2) {
+        dcptilt_td3_eh_m = 0.0f;
+    } else {
+        dcptilt_td3_eh_m = eh_zup;
+    }
+
+    // Training observation definition:
+    //   Vnorm = 1.2 * V / 20 = 0.06 * V
+    // Do not clip the upper end to 1: the trained observation itself can
+    // exceed 1 when V > 16.6667 m/s.
+    dcptilt_td3_vnorm =
+        MAX(dcptilt_strategy_speed(), 0.0f) * (1.2f / 20.0f);
+
+    // Training observation 3 is intended to represent normalized motor speed.
+    // For this ArduPilot implementation use the final normalized rotor-thrust
+    // command that DCPTilt sends toward AP_Motors as the speed/load proxy.
+    //
+    // This quantity:
+    //   - is already normalized to [0,1],
+    //   - is independent of PWM_MIN/PWM_MAX,
+    //   - follows the final commanded motor effort after the DCPTilt thrust
+    //     model and filtering,
+    //   - does not use Tau (which is normalized to mg and is near 1 in hover).
+    //
+    // The +0.3858 offset is part of the trained observation definition:
+    //   MotorInput = MotorProxyNorm + 0.3858
+    const float motor_proxy_norm = constrain_float(
+        dcptilt_throttle_cmd,
         0.0f,
         1.0f);
 
-    // This helper reads enabled tilting-motor PWM, normalizes each output with
-    // the motor PWM min/max and returns their mean. No acceleration feedback.
-    dcptilt_td3_motor_norm = constrain_float(
-        dcptilt_capture_forward_output(),
-        0.0f,
-        1.0f);
+    dcptilt_td3_motor_norm =
+        motor_proxy_norm + 0.3858f;
 
     const uint8_t actor_index = uint8_t(profile - DCPT_PROFILE_TD3_A);
     dcptilt_td3_output = dcptilt_td3_actor_forward(
@@ -589,8 +645,19 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
         dcptilt_td3_vnorm,
         dcptilt_td3_motor_norm);
 
+    // Diagnostic mode 3 bypasses the actor output only. Keeping the normal
+    // observations and DCTD logging lets us verify the rest of the pipeline
+    // and aircraft response independently of actor semantics. With the
+    // original TD3S=0.084, Out=0.4 gives lambda_dot=0.0336/s, i.e. about
+    // lambda=1 after 29.8 s.
+    if (td3_diag_mode == 3) {
+        dcptilt_td3_output = 0.4f;
+    }
+
+    const float td3_rate_scale =
+        constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
     dcptilt_td3_lambda_rate =
-        DCPTILT_TD3_RATE_SCALE * dcptilt_td3_output;
+        td3_rate_scale * dcptilt_td3_output;
     dcptilt_td3_delta_lambda =
         dcptilt_td3_lambda_rate * DCPTILT_TD3_DT_S;
 

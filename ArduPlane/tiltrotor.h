@@ -138,6 +138,10 @@ public:
     AP_Float dcptilt_nmpc_pitch_gain_deg;
     AP_Float dcptilt_nmpc_pitch_max_deg;
 
+    // TD3 trajectory-generation parameters (PROF=6..8 only).
+    AP_Float dcptilt_td3_rate_scale;
+    AP_Int8 dcptilt_td3_diag_mode;
+
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
     uint32_t dcptilt_transition_start_ms = 0;
@@ -146,9 +150,12 @@ public:
     float dcptilt_target_tilt = 0.0f;
 
     // Closed-loop TD3 tilt-profile state (PROF=6..8).
-    // Actor inference runs at 20 Hz. The network output is interpreted as
-    // normalized tilt rate after the fixed 0.084 scale, then integrated into
-    // lambda in [0,1].
+    // Actor inference runs at 20 Hz. Training observations are:
+    //   eh = configurable diagnostic convention (normally h-h_ref)
+    //   Vnorm = 1.2*V/20
+    //   MotorInput = DCPTilt normalized motor-thrust command + 0.3858
+    // The network output is converted to normalized tilt rate by
+    // Q_TILT_DCPT_TD3S, then integrated into lambda in [0,1].
     uint32_t dcptilt_td3_last_update_ms = 0;
     float dcptilt_td3_lambda = 0.0f;
     float dcptilt_td3_eh_m = 0.0f;
