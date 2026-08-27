@@ -320,14 +320,6 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_TD3S", 38, Tiltrotor, dcptilt_td3_rate_scale, 0.084f),
 
-    // @Param: DCPT_TD3D
-    // @DisplayName: DCPTilt TD3 diagnostic mode
-    // @Description: Temporary TD3 diagnostic selector for profiles 6 through 8. 0=current Z-up Eh, 1=NED-sign Eh, 2=force Eh=0, 3=force actor output=0.4 while preserving/logging normal observations. Use only for A/B diagnosis.
-    // @Values: 0:NormalZUp,1:NEDSign,2:ZeroEh,3:FixedOut04
-    // @Range: 0 3
-    // @User: Advanced
-    AP_GROUPINFO("DCPT_TD3D", 39, Tiltrotor, dcptilt_td3_diag_mode, 0),
-
     AP_GROUPEND
 };
 
@@ -584,31 +576,22 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
     const float altitude_m =
         quadplane.inertial_nav.get_position_z_up_cm() * 0.01f;
 
-    // Diagnostic Eh selector.
+    // The original TD3 policy formed height error in NED coordinates:
     //
-    // mode 0: current ArduPilot Z-up convention
-    //         Eh = h_actual - h_ref
+    //   Eh = z_actual - z_ref
     //
-    // mode 1: NED-z convention used by the original policy if its error was
-    //         formed directly as z_actual - z_ref. Since z_NED = -h_up:
-    //         Eh = h_ref - h_actual
+    // ArduPilot's altitude_m here is Z-up, while NED z is down-positive:
     //
-    // mode 2: force Eh=0 to isolate the height-error observation.
+    //   z_NED = -h_up
     //
-    // mode 3: keep normal Eh here; actor output is overridden below.
-    const int8_t td3_diag_mode =
-        constrain_int16(dcptilt_td3_diag_mode.get(), 0, 3);
-
-    const float eh_zup =
-        dcptilt_alt_target_valid ? (altitude_m - dcptilt_alt_target_m) : 0.0f;
-
-    if (td3_diag_mode == 1) {
-        dcptilt_td3_eh_m = -eh_zup;
-    } else if (td3_diag_mode == 2) {
-        dcptilt_td3_eh_m = 0.0f;
-    } else {
-        dcptilt_td3_eh_m = eh_zup;
-    }
+    // Therefore the equivalent observation in this implementation is:
+    //
+    //   Eh = h_ref - h_actual
+    //
+    // A positive Eh means the aircraft is below the reference altitude,
+    // matching the original NED training convention.
+    dcptilt_td3_eh_m =
+        dcptilt_alt_target_valid ? (dcptilt_alt_target_m - altitude_m) : 0.0f;
 
     // Training observation definition:
     //   Vnorm = 1.2 * V / 20 = 0.06 * V
@@ -644,15 +627,6 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
         dcptilt_td3_eh_m,
         dcptilt_td3_vnorm,
         dcptilt_td3_motor_norm);
-
-    // Diagnostic mode 3 bypasses the actor output only. Keeping the normal
-    // observations and DCTD logging lets us verify the rest of the pipeline
-    // and aircraft response independently of actor semantics. With the
-    // original TD3S=0.084, Out=0.4 gives lambda_dot=0.0336/s, i.e. about
-    // lambda=1 after 29.8 s.
-    if (td3_diag_mode == 3) {
-        dcptilt_td3_output = 0.4f;
-    }
 
     const float td3_rate_scale =
         constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
