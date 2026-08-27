@@ -1,5 +1,6 @@
 #include "tiltrotor.h"
 #include "Plane.h"
+#include "dcptilt_td3_weights.h"
 #include <AP_Logger/AP_Logger.h>
 
 #if HAL_QUADPLANE_ENABLED
@@ -117,8 +118,8 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
 
     // @Param: DCPT_PROF
     // @DisplayName: DCPTilt tilt profile
-    // @Description: Selects one of the six tilt-angle profiles reproduced from the research SITL code. All profiles map transition progress 0 to 1 into tilt 0 to 90 degrees.
-    // @Values: 0:Linear,1:Smoothstep,2:POptA,3:POptB,4:POptC,5:POptD
+    // @Description: Selects the DCPTilt tilt-angle trajectory. Profiles 0-5 are the six original time-scheduled trajectories. Profiles 6-8 are the three supplied TD3 actors evaluated at 20 Hz with incremental lambda integration.
+    // @Values: 0:Linear,1:Smoothstep,2:POptA,3:POptB,4:POptC,5:POptD,6:TD3A,7:TD3B,8:TD3C
     // @User: Advanced
     AP_GROUPINFO("DCPT_PROF", 15, Tiltrotor, dcptilt_profile, DCPT_PROFILE_LINEAR),
 
@@ -493,6 +494,112 @@ float Tiltrotor::dcptilt_tilt_profile(float progress) const
     default:
         return p;
     }
+}
+
+namespace {
+
+static constexpr uint32_t DCPTILT_TD3_PERIOD_MS = 50U;
+static constexpr float DCPTILT_TD3_DT_S = 0.05f;
+static constexpr float DCPTILT_TD3_RATE_SCALE = 0.084f;
+
+float dcptilt_td3_actor_forward(uint8_t actor_index,
+                                float eh_m,
+                                float vnorm,
+                                float motor_norm)
+{
+    actor_index = MIN(actor_index, uint8_t(2));
+    const DCPTiltTD3::ActorWeights &actor = DCPTiltTD3::actors[actor_index];
+
+    const float input[3] = {eh_m, vnorm, motor_norm};
+    float h1[64];
+    float h2[64];
+
+    for (uint8_t i = 0; i < 64; i++) {
+        float sum = actor.b1[i];
+        const float *row = &actor.w1[i * 3U];
+        for (uint8_t j = 0; j < 3; j++) {
+            sum += row[j] * input[j];
+        }
+        h1[i] = MAX(sum, 0.0f);
+    }
+
+    for (uint8_t i = 0; i < 64; i++) {
+        float sum = actor.b2[i];
+        const float *row = &actor.w2[i * 64U];
+        for (uint8_t j = 0; j < 64; j++) {
+            sum += row[j] * h1[j];
+        }
+        h2[i] = MAX(sum, 0.0f);
+    }
+
+    float z = actor.b3;
+    for (uint8_t j = 0; j < 64; j++) {
+        z += actor.w3[j] * h2[j];
+    }
+
+    return 1.0f / (1.0f + expf(-z));
+}
+
+} // namespace
+
+// PROF=6..8: incremental TD3 closed-loop tilt trajectory.
+// x = [h-h_ref, V/30, mean normalized actual motor PWM].
+// lambda_dot = 0.084 * actor_output
+// lambda(k+1) = constrain(lambda(k) + lambda_dot*0.05, 0, 1)
+float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
+{
+    const int8_t profile = dcptilt_profile.get();
+    if (profile < DCPT_PROFILE_TD3_A || profile > DCPT_PROFILE_TD3_C) {
+        return constrain_float(dcptilt_td3_lambda, 0.0f, 1.0f);
+    }
+
+    if (dcptilt_td3_last_update_ms == 0U) {
+        dcptilt_td3_last_update_ms = now_ms;
+        return constrain_float(dcptilt_td3_lambda, 0.0f, 1.0f);
+    }
+
+    if ((now_ms - dcptilt_td3_last_update_ms) < DCPTILT_TD3_PERIOD_MS) {
+        return constrain_float(dcptilt_td3_lambda, 0.0f, 1.0f);
+    }
+
+    // Keep the sampling grid tied to 50 ms rather than accumulating loop jitter.
+    dcptilt_td3_last_update_ms += DCPTILT_TD3_PERIOD_MS;
+
+    const float altitude_m =
+        quadplane.inertial_nav.get_position_z_up_cm() * 0.01f;
+    dcptilt_td3_eh_m =
+        dcptilt_alt_target_valid ? (altitude_m - dcptilt_alt_target_m) : 0.0f;
+
+    dcptilt_td3_vnorm = constrain_float(
+        MAX(dcptilt_strategy_speed(), 0.0f) / 30.0f,
+        0.0f,
+        1.0f);
+
+    // This helper reads enabled tilting-motor PWM, normalizes each output with
+    // the motor PWM min/max and returns their mean. No acceleration feedback.
+    dcptilt_td3_motor_norm = constrain_float(
+        dcptilt_capture_forward_output(),
+        0.0f,
+        1.0f);
+
+    const uint8_t actor_index = uint8_t(profile - DCPT_PROFILE_TD3_A);
+    dcptilt_td3_output = dcptilt_td3_actor_forward(
+        actor_index,
+        dcptilt_td3_eh_m,
+        dcptilt_td3_vnorm,
+        dcptilt_td3_motor_norm);
+
+    dcptilt_td3_lambda_rate =
+        DCPTILT_TD3_RATE_SCALE * dcptilt_td3_output;
+    dcptilt_td3_delta_lambda =
+        dcptilt_td3_lambda_rate * DCPTILT_TD3_DT_S;
+
+    dcptilt_td3_lambda = constrain_float(
+        dcptilt_td3_lambda + dcptilt_td3_delta_lambda,
+        0.0f,
+        1.0f);
+
+    return dcptilt_td3_lambda;
 }
 
 // Membership functions used by TestTiltFuzzy.fis. Keep these local to this
@@ -1157,6 +1264,24 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_strategy_speed_mps,
         dcptilt_mc_weight,
         dcptilt_fw_weight);
+
+    // PROF=6..8 TD3 incremental tilt-profile diagnostics.
+    if (dcptilt_profile.get() >= DCPT_PROFILE_TD3_A &&
+        dcptilt_profile.get() <= DCPT_PROFILE_TD3_C) {
+        AP::logger().Write(
+            "DCTD",
+            "TimeUS,Prof,Eh,Vn,Mn,Out,Rate,Dlt,Lam",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            (int8_t)dcptilt_profile.get(),
+            dcptilt_td3_eh_m,
+            dcptilt_td3_vnorm,
+            dcptilt_td3_motor_norm,
+            dcptilt_td3_output,
+            dcptilt_td3_lambda_rate,
+            dcptilt_td3_delta_lambda,
+            dcptilt_td3_lambda);
+    }
 
     // MODE=1 historical hard-switch handover diagnostics.
     if ((DCPTiltMode)dcptilt_mode.get() == DCPT_MODE_SWITCH) {
@@ -1839,6 +1964,14 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_progress = 0.0f;
     tiltrotor.dcptilt_elapsed_s = 0.0f;
     tiltrotor.dcptilt_target_tilt = 0.0f;
+    tiltrotor.dcptilt_td3_last_update_ms = 0;
+    tiltrotor.dcptilt_td3_lambda = 0.0f;
+    tiltrotor.dcptilt_td3_eh_m = 0.0f;
+    tiltrotor.dcptilt_td3_vnorm = 0.0f;
+    tiltrotor.dcptilt_td3_motor_norm = 0.0f;
+    tiltrotor.dcptilt_td3_output = 0.0f;
+    tiltrotor.dcptilt_td3_lambda_rate = 0.0f;
+    tiltrotor.dcptilt_td3_delta_lambda = 0.0f;
     tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
     tiltrotor.dcptilt_mc_weight = 1.0f;
     tiltrotor.dcptilt_fw_weight = 0.0f;
@@ -1926,7 +2059,7 @@ void Tiltrotor_Transition::restart()
 // DCPTilt primary forward transition:
 //  * starts immediately on the first fixed-wing transition update
 //  * progress = elapsed / Q_TILT_DCPT_TIME
-//  * tilt follows the selected 1-of-6 dcptilt_tilt_profile()
+//  * tilt follows the selected static profile or 20 Hz TD3 closed-loop profile
 //  * MC/FW attitude authority follows the selected FUZZ/SWITCH/NMPC strategy
 //  * normal completion depends only on progress reaching 1
 //  * RC throttle and the selected FBWA/FBWB altitude logic are ignored
@@ -1960,7 +2093,15 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_transition_start_ms = now;
         tiltrotor.dcptilt_progress = 0.0f;
         tiltrotor.dcptilt_elapsed_s = 0.0f;
-        tiltrotor.dcptilt_target_tilt = tiltrotor.dcptilt_tilt_profile(0.0f);
+        tiltrotor.dcptilt_target_tilt = 0.0f;
+        tiltrotor.dcptilt_td3_last_update_ms = now;
+        tiltrotor.dcptilt_td3_lambda = 0.0f;
+        tiltrotor.dcptilt_td3_eh_m = 0.0f;
+        tiltrotor.dcptilt_td3_vnorm = 0.0f;
+        tiltrotor.dcptilt_td3_motor_norm = 0.0f;
+        tiltrotor.dcptilt_td3_output = 0.0f;
+        tiltrotor.dcptilt_td3_lambda_rate = 0.0f;
+        tiltrotor.dcptilt_td3_delta_lambda = 0.0f;
         tiltrotor.dcptilt_mc_weight = 1.0f;
         tiltrotor.dcptilt_fw_weight = 0.0f;
         tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
@@ -2024,8 +2165,17 @@ void Tiltrotor_Transition::dcptilt_update()
     const float total_time_s = constrain_float(tiltrotor.dcptilt_transition_time_s.get(), 0.1f, 300.0f);
     tiltrotor.dcptilt_elapsed_s = (now - tiltrotor.dcptilt_transition_start_ms) * 0.001f;
     tiltrotor.dcptilt_progress = constrain_float(tiltrotor.dcptilt_elapsed_s / total_time_s, 0.0f, 1.0f);
-    tiltrotor.dcptilt_target_tilt =
-        tiltrotor.dcptilt_tilt_profile(tiltrotor.dcptilt_progress);
+
+    const int8_t active_profile = tiltrotor.dcptilt_profile.get();
+    if (active_profile >= Tiltrotor::DCPT_PROFILE_TD3_A &&
+        active_profile <= Tiltrotor::DCPT_PROFILE_TD3_C) {
+        tiltrotor.dcptilt_target_tilt =
+            tiltrotor.dcptilt_update_td3_profile(now);
+    } else {
+        tiltrotor.dcptilt_target_tilt =
+            tiltrotor.dcptilt_tilt_profile(tiltrotor.dcptilt_progress);
+    }
+
     tiltrotor.dcptilt_update_control_weights();
 
     // Set the requested tilt before computing the common vertical-force

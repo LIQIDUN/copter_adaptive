@@ -70,6 +70,7 @@ public:
     float dcptilt_tilt_profile(float progress) const;
     void dcptilt_set_tilt_direct(float tilt);
     float dcptilt_capture_forward_output() const;
+    float dcptilt_update_td3_profile(uint32_t now_ms);
     void dcptilt_update_control_weights();
     float dcptilt_fis_fww(float velocity_mps, float tilt_normalized) const;
     float dcptilt_strategy_speed() const;
@@ -143,6 +144,19 @@ public:
     float dcptilt_progress = 0.0f;
     float dcptilt_elapsed_s = 0.0f;
     float dcptilt_target_tilt = 0.0f;
+
+    // Closed-loop TD3 tilt-profile state (PROF=6..8).
+    // Actor inference runs at 20 Hz. The network output is interpreted as
+    // normalized tilt rate after the fixed 0.084 scale, then integrated into
+    // lambda in [0,1].
+    uint32_t dcptilt_td3_last_update_ms = 0;
+    float dcptilt_td3_lambda = 0.0f;
+    float dcptilt_td3_eh_m = 0.0f;
+    float dcptilt_td3_vnorm = 0.0f;
+    float dcptilt_td3_motor_norm = 0.0f;
+    float dcptilt_td3_output = 0.0f;
+    float dcptilt_td3_lambda_rate = 0.0f;
+    float dcptilt_td3_delta_lambda = 0.0f;
 
     // DCPTilt controller-allocation state. These two coefficients reproduce
     // the selected FUZZ / SWITCH / NMPC / FIS allocation strategy.
@@ -231,7 +245,10 @@ public:
         DCPT_PROFILE_POPT_A = 2,
         DCPT_PROFILE_POPT_B = 3,
         DCPT_PROFILE_POPT_C = 4,
-        DCPT_PROFILE_POPT_D = 5
+        DCPT_PROFILE_POPT_D = 5,
+        DCPT_PROFILE_TD3_A = 6,
+        DCPT_PROFILE_TD3_B = 7,
+        DCPT_PROFILE_TD3_C = 8
     };
 
     // types of tilt mechanisms
