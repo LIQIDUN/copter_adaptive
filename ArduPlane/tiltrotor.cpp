@@ -226,16 +226,16 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     AP_GROUPINFO("DCPT_TGN", 27, Tiltrotor, dcptilt_terminal_gain, 1.0f),
 
     // @Param: DCPT_YAWP
-    // @DisplayName: DCPTilt transition rudder heading P
-    // @Description: Rudder scaled-output gain per degree of heading error during DCPTilt. The rudder controller holds the heading captured at transition entry and is common to all 3x6 experiments.
+    // @DisplayName: DCPTilt legacy transition-rudder P
+    // @Description: Legacy v3.28 hand-written rudder-PD gain retained for parameter compatibility. v3.29 and later AP-yaw-rate control does not use this parameter.
     // @Range: 0 400
     // @Increment: 5
     // @User: Advanced
     AP_GROUPINFO("DCPT_YAWP", 28, Tiltrotor, dcptilt_yaw_p, 100.0f),
 
     // @Param: DCPT_YAWD
-    // @DisplayName: DCPTilt transition rudder yaw-rate damping
-    // @Description: Rudder scaled-output damping gain per deg/s of earth-frame yaw rate during DCPTilt. Positive yaw rate is subtracted from the heading correction.
+    // @DisplayName: DCPTilt legacy transition-rudder D
+    // @Description: Legacy v3.28 hand-written rudder-PD damping gain retained for parameter compatibility. v3.29 and later AP-yaw-rate control does not use this parameter.
     // @Range: 0 500
     // @Increment: 5
     // @User: Advanced
@@ -362,6 +362,24 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Increment: 0.05
     // @User: Advanced
     AP_GROUPINFO("DCPT_EHL", 43, Tiltrotor, dcptilt_td3_eh_limit_m, 0.5f),
+
+    // @Param: DCPT_YHP
+    // @DisplayName: DCPTilt heading-to-yaw-rate P
+    // @Description: Outer-loop gain converting DCPTilt heading error in degrees to desired fixed-wing yaw rate in deg/s. The desired rate is then controlled by ArduPlane's native yawController rate PID. This outer loop has no integrator; steady disturbance rejection is provided by the native yaw-rate PID I term.
+    // @Units: 1/s
+    // @Range: 0 4
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_YHP", 44, Tiltrotor, dcptilt_yaw_heading_p, 1.0f),
+
+    // @Param: DCPT_YRM
+    // @DisplayName: DCPTilt maximum FW yaw-rate demand
+    // @Description: Absolute limit on the heading outer-loop yaw-rate demand sent to ArduPlane's native yawController during DCPTilt. This limit is applied before the fixed-wing FWW allocation.
+    // @Units: deg/s
+    // @Range: 1 60
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_YRM", 45, Tiltrotor, dcptilt_yaw_rate_max_dps, 20.0f),
 
     AP_GROUPEND
 };
@@ -1658,8 +1676,9 @@ void Tiltrotor::dcptilt_write_log()
         dcptilt_alt_control_error_m);
 
     // Yaw diagnostics. YRaw is the native multicopter yaw-moment demand and
-    // YWgt is the actually applied MC yaw demand. DCPTilt deliberately keeps
-    // yaw independent of the experimental MCW so YRaw and YWgt should match.
+    // YWgt is the actually applied MC yaw demand after complementary MCW/FWW
+    // allocation. During the DCPTilt primary transition YWgt should therefore
+    // equal MCW-scaled yaw demand rather than always matching YRaw.
     const float yaw_target_deg = dcptilt_yaw_target_cd * 0.01f;
     const float yaw_deg = plane.ahrs.yaw_sensor * 0.01f;
     AP::logger().Write(
@@ -1676,21 +1695,26 @@ void Tiltrotor::dcptilt_write_log()
         wrap_180(yaw_target_deg - yaw_deg),
         degrees(quadplane.ahrs.get_yaw_rate_earth()));
 
-    // Dedicated transition-rudder heading controller diagnostics. RudRaw is
-    // the PD command before the fixed-wing allocation weight, RudW is FWW,
-    // and RudOut is the command actually written to k_rudder.
+    // v3.29 fixed-wing yaw diagnostics. The heading outer loop produces RtT
+    // (desired yaw rate); ArduPlane's native yawController rate PID supplies
+    // the rudder command and its own I term. RudW is the fixed-wing allocation
+    // FWW, and RudOut is the actually applied rudder after weighting.
+    const auto &fw_yaw_pid = plane.yawController.get_pid_info();
     AP::logger().Write(
         "DCPR",
-        "TimeUS,YawT,Yaw,YErr,YRate,RudRaw,RudW,RudOut",
-        "Qfffffff",
+        "TimeUS,YawT,Yaw,YErr,RtT,RtA,YI,RudRaw,RudW,RudOut,RollT",
+        "Qffffffffff",
         AP_HAL::micros64(),
         yaw_target_deg,
         yaw_deg,
         wrap_180(yaw_target_deg - yaw_deg),
-        degrees(quadplane.ahrs.get_yaw_rate_earth()),
+        dcptilt_fw_yaw_rate_target_dps,
+        fw_yaw_pid.actual,
+        fw_yaw_pid.I,
         dcptilt_rudder_raw,
         dcptilt_rudder_weight,
-        dcptilt_rudder_output);
+        dcptilt_rudder_output,
+        plane.nav_roll_cd * 0.01f);
 
     // Post-transition handover and heading-lock diagnostics.
     AP::logger().Write(
@@ -2314,6 +2338,7 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_rudder_raw = 0.0f;
     tiltrotor.dcptilt_rudder_weight = 0.0f;
     tiltrotor.dcptilt_rudder_output = 0.0f;
+    tiltrotor.dcptilt_fw_yaw_rate_target_dps = 0.0f;
 
     tiltrotor.dcptilt_handover_active = false;
     tiltrotor.dcptilt_handover_start_ms = 0;
@@ -2602,10 +2627,18 @@ void Tiltrotor_Transition::dcptilt_update()
 #endif
         quadplane.attitude_control->set_throttle_mix_max(1.0f);
 
-        // Lock the heading that existed at transition entry. This is a target
-        // angle, not a repeated reset to the already-drifted current yaw.
+        // Initialise the common DCPTilt yaw target at transition entry.
+        //
+        // v3.29 keeps straight-flight heading lock when bank demand is small,
+        // but also reuses ArduPilot's stock Tiltrotor::update_yaw_target()
+        // coordinated-turn target evolution when |nav_roll| > 10 deg and
+        // airspeed is available. Both MC and FW yaw controllers follow this
+        // same target, preserving complementary controller allocation.
         tiltrotor.dcptilt_yaw_target_cd = quadplane.ahrs.yaw_sensor;
+        tiltrotor.transition_yaw_cd = tiltrotor.dcptilt_yaw_target_cd;
+        tiltrotor.transition_yaw_set_ms = now;
         tiltrotor.dcptilt_yaw_lock_active = true;
+        tiltrotor.dcptilt_fw_yaw_rate_target_dps = 0.0f;
 
         gcs().send_text(MAV_SEVERITY_INFO, "DCPTilt transition start");
     }
@@ -2830,13 +2863,18 @@ void Tiltrotor::update_yaw_target(void)
 
 bool Tiltrotor_Transition::update_yaw_target(float& yaw_target_cd)
 {
-    // DCPTilt primary transition: hold the heading captured at transition
-    // entry. QuadPlane::multicopter_attitude_rate_update() uses this hook to
-    // enable multicopter attitude control with an absolute yaw target.
+    // DCPTilt primary transition: both MC and FW yaw controllers share the
+    // same absolute yaw target. Reuse ArduPilot's stock tiltrotor transition
+    // target evolution here so a significant commanded bank can produce the
+    // corresponding coordinated-turn yaw target instead of forcing an
+    // incompatible straight-heading target.
     if (forward_transition_selection_latched &&
         forward_transition_use_dcptilt &&
         tiltrotor.dcptilt_transition_active &&
         tiltrotor.dcptilt_yaw_lock_active) {
+        tiltrotor.transition_yaw_cd = tiltrotor.dcptilt_yaw_target_cd;
+        tiltrotor.update_yaw_target();
+        tiltrotor.dcptilt_yaw_target_cd = tiltrotor.transition_yaw_cd;
         yaw_target_cd = tiltrotor.dcptilt_yaw_target_cd;
         return true;
     }

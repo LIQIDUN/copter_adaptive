@@ -1962,23 +1962,12 @@ void QuadPlane::update(void)
             SRV_Channel::k_elevator,
             SRV_Channels::get_output_scaled(SRV_Channel::k_elevator) * fw_weight);
 
-        // Yaw is a common transition-stabilization channel, not one of the
-        // 3x6 experimental allocation variables. During the DCPTilt primary
-        // transition the rudder therefore holds the same absolute heading as
-        // the multicopter yaw controller instead of using Plane's normal
-        // coordinated-flight rudder demand. FWW only represents the gradual
-        // availability of the aerodynamic rudder as forward-flight authority
-        // builds with speed/strategy.
-        const float yaw_target_deg = tiltrotor.dcptilt_yaw_target_cd * 0.01f;
-        const float yaw_deg = plane.ahrs.yaw_sensor * 0.01f;
-        const float yaw_error_deg = wrap_180(yaw_target_deg - yaw_deg);
-        const float yaw_rate_dps = degrees(plane.ahrs.get_yaw_rate_earth());
-        const float rudder_limit = constrain_float(
-            tiltrotor.dcptilt_yaw_max.get(), 0.0f, 4500.0f);
-        const float rudder_raw = constrain_float(
-            tiltrotor.dcptilt_yaw_p.get() * yaw_error_deg -
-            tiltrotor.dcptilt_yaw_d.get() * yaw_rate_dps,
-            -rudder_limit, rudder_limit);
+        // v3.29 FW yaw comes from Plane::stabilize_yaw(), which runs the
+        // shared heading target through ArduPlane's native yaw-rate PID.
+        // This stage performs only the controller-allocation operation:
+        //     FW yaw actuator command = FWW * AP-native raw rudder.
+        const float rudder_raw =
+            SRV_Channels::get_output_scaled(SRV_Channel::k_rudder);
         const float rudder_output = rudder_raw * fw_weight;
 
         tiltrotor.dcptilt_rudder_raw = rudder_raw;
@@ -2185,12 +2174,12 @@ void QuadPlane::motors_output(bool run_rate_controller)
         pos_control->set_dt(last_loop_time_s);
         attitude_control->rate_controller_run();
 
-        // DCPTilt experimental multicopter-controller weighting. Roll and
-        // pitch retain the selected 3x6 MCW allocation. Yaw is deliberately
-        // excluded: it is a common transition heading-stabilization channel
-        // shared by every experiment, and rotor yaw authority already falls
-        // naturally as the rotors tilt forward. Applying MCW here would create
-        // an unnecessary second loss of yaw authority.
+        // DCPTilt experimental multicopter-controller weighting. Apply the
+        // selected 3x6 MCW allocation consistently on all multicopter axes so
+        // yaw authority is transferred to the fixed-wing rudder in the same
+        // complementary way as roll/pitch are transferred to the aerodynamic
+        // surfaces. This keeps the transition logic aligned with the intended
+        // controller-allocation design: MCW + FWW = 1.
         if (tiltrotor.dcptilt_transition_active) {
             const float mc_weight = constrain_float(tiltrotor.dcptilt_mc_weight, 0.0f, 1.0f);
 
@@ -2200,8 +2189,9 @@ void QuadPlane::motors_output(bool run_rate_controller)
             motors->set_roll_ff(motors->get_roll_ff() * mc_weight);
             motors->set_pitch(motors->get_pitch() * mc_weight);
             motors->set_pitch_ff(motors->get_pitch_ff() * mc_weight);
+            motors->set_yaw(motors->get_yaw() * mc_weight);
+            motors->set_yaw_ff(motors->get_yaw_ff() * mc_weight);
 
-            // Leave yaw and yaw_ff unscaled by MCW.
             tiltrotor.dcptilt_mc_yaw_weighted = motors->get_yaw() + motors->get_yaw_ff();
         }
 

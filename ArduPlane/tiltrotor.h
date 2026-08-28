@@ -122,9 +122,16 @@ public:
 
     // Common DCPTilt transition-heading rudder controller. These parameters
     // are not part of the 3x6 experimental allocation variables.
+    // Legacy v3.28 hand-written rudder-PD parameters are retained for
+    // parameter compatibility but are not used by the v3.29 AP-yaw-rate path.
     AP_Float dcptilt_yaw_p;
     AP_Float dcptilt_yaw_d;
     AP_Float dcptilt_yaw_max;
+
+    // v3.29 fixed-wing yaw architecture:
+    // heading error -> desired yaw rate -> Plane yawController rate PID.
+    AP_Float dcptilt_yaw_heading_p;
+    AP_Float dcptilt_yaw_rate_max_dps;
 
     // Strategy-specific experimental parameters. SWITCH keeps the historical
     // three-state weights, exposes both speed thresholds, and makes the middle
@@ -253,6 +260,7 @@ public:
     float dcptilt_rudder_raw = 0.0f;
     float dcptilt_rudder_weight = 0.0f;
     float dcptilt_rudder_output = 0.0f;
+    float dcptilt_fw_yaw_rate_target_dps = 0.0f;
 
     // DCPTilt post-transition throttle handover. This is deliberately
     // separate from dcptilt_progress: the primary tilt transition still

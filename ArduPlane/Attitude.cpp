@@ -352,6 +352,82 @@ void Plane::stabilize_stick_mixing_fbw()
  */
 void Plane::stabilize_yaw()
 {
+#if HAL_QUADPLANE_ENABLED
+    // DCPTilt v3.29 fixed-wing yaw branch.
+    //
+    // Architecture:
+    //   shared yaw target
+    //       -> heading-error P outer loop
+    //       -> desired yaw rate
+    //       -> ArduPlane native yawController.get_rate_out()
+    //       -> raw rudder
+    //       -> QuadPlane::update() applies FWW
+    //
+    // The AP yaw-rate PID contains its own I term, so a constant transition
+    // yaw disturbance no longer requires a steady heading offset to create a
+    // permanent rudder bias. We also reuse Tiltrotor::update_yaw_target() so
+    // bank commands above the stock 10-deg threshold may evolve the yaw target
+    // according to coordinated fixed-wing turn rate.
+    if (quadplane.tiltrotor.dcptilt_transition_active &&
+        quadplane.tiltrotor.dcptilt_yaw_lock_active) {
+
+        quadplane.tiltrotor.transition_yaw_cd =
+            quadplane.tiltrotor.dcptilt_yaw_target_cd;
+        quadplane.tiltrotor.update_yaw_target();
+        quadplane.tiltrotor.dcptilt_yaw_target_cd =
+            quadplane.tiltrotor.transition_yaw_cd;
+
+        const float yaw_target_deg =
+            quadplane.tiltrotor.dcptilt_yaw_target_cd * 0.01f;
+        const float yaw_deg = ahrs.yaw_sensor * 0.01f;
+        const float yaw_error_deg = wrap_180(yaw_target_deg - yaw_deg);
+
+        const float heading_p = constrain_float(
+            quadplane.tiltrotor.dcptilt_yaw_heading_p.get(), 0.0f, 4.0f);
+        const float rate_max_dps = constrain_float(
+            quadplane.tiltrotor.dcptilt_yaw_rate_max_dps.get(), 1.0f, 60.0f);
+
+        const float desired_yaw_rate_dps = constrain_float(
+            heading_p * yaw_error_deg,
+            -rate_max_dps,
+            rate_max_dps);
+
+        quadplane.tiltrotor.dcptilt_fw_yaw_rate_target_dps =
+            desired_yaw_rate_dps;
+
+        const float speed_scaler = get_speed_scaler();
+
+        // Intentionally call the native AP yaw-rate PID directly. The normal
+        // YAW_RATE_ENABLE mode-selection parameter is not used as a gate here:
+        // DCPTilt explicitly chooses this controller for its FW yaw branch.
+        float rudder_raw = yawController.get_rate_out(
+            desired_yaw_rate_dps,
+            speed_scaler,
+            false);
+
+        const float rudder_limit = constrain_float(
+            quadplane.tiltrotor.dcptilt_yaw_max.get(),
+            0.0f,
+            4500.0f);
+        rudder_raw = constrain_float(
+            rudder_raw,
+            -rudder_limit,
+            rudder_limit);
+
+        quadplane.tiltrotor.dcptilt_rudder_raw = rudder_raw;
+
+        // Store the unweighted AP-native command here. QuadPlane::update()
+        // applies FWW after the normal Plane stabilization stage.
+        SRV_Channels::set_output_scaled(
+            SRV_Channel::k_rudder,
+            rudder_raw);
+        SRV_Channels::set_output_scaled(
+            SRV_Channel::k_steering,
+            rudder_raw);
+        return;
+    }
+#endif
+
     bool ground_steering = false;
     if (landing.is_flaring()) {
         // in flaring then enable ground steering
