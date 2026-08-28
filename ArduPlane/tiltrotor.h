@@ -172,6 +172,29 @@ public:
     float dcptilt_td3_lambda_rate = 0.0f;
     float dcptilt_td3_delta_lambda = 0.0f;
 
+    // TD3 runtime instrumentation (PROF=6..8 only).
+    //
+    // RLT.ActorUS:
+    //   time spent only inside the 3-64-64-1 Actor forward pass.
+    //
+    // RLT.ProjUS:
+    //   time from Actor output through rate mapping, delta-lambda formation
+    //   and lambda feasibility projection/saturation.
+    //
+    // RLT.TotalUS:
+    //   time from the beginning of the scheduled TD3 observation update until
+    //   the resulting tilt command has been written into the AP servo-output
+    //   pipeline by dcptilt_set_tilt_direct().
+    //
+    // RLT.Miss:
+    //   TotalUS > the 20 Hz policy budget (50,000 us).
+    bool dcptilt_td3_runtime_updated = false;
+    uint32_t dcptilt_td3_runtime_start_us = 0;
+    uint32_t dcptilt_td3_actor_us = 0;
+    uint32_t dcptilt_td3_proj_us = 0;
+    uint32_t dcptilt_td3_total_us = 0;
+    uint32_t dcptilt_td3_runtime_seq = 0;
+
     // TD3 speed-source diagnostics. These are sampled on the same 20 Hz grid
     // as the actor observation, so DCTV can be compared directly with DCTD.Vn.
     float dcptilt_td3_speed_used_mps = 0.0f;
@@ -326,6 +349,14 @@ private:
 
     void dcptilt_update();
     void dcptilt_reset_state();
+
+    // Forward-transition selector. Q_TILT_DCPT_EN is sampled once at the
+    // beginning of each armed VTOL->FW transition and held until the vehicle
+    // returns to the VTOL path (or the transition object is restarted).
+    // This prevents a parameter write from switching transition controllers
+    // in the middle of a real flight.
+    bool forward_transition_selection_latched = false;
+    bool forward_transition_use_dcptilt = false;
 
     // Once the research time-scheduled transition has completed, the
     // standard SLT state machine is used only as the post-transition

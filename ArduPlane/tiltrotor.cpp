@@ -86,7 +86,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
 
     // @Param: DCPT_EN
     // @DisplayName: DCPTilt research transition enable
-    // @Description: Enables the DCPTilt time-scheduled forward transition for continuous tiltrotors. Airspeed is monitoring only and is not used as a normal transition completion condition.
+    // @Description: Selects the forward VTOL-to-fixed-wing transition path. 0 uses the native ArduPilot SLT transition; 1 uses DCPTilt. The selection is latched at the start of each armed forward transition, so changing this parameter in flight does not switch controllers mid-transition. Fixed-wing-to-VTOL transitions always use the native ArduPilot path.
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
     AP_GROUPINFO("DCPT_EN", 11, Tiltrotor, dcptilt_enable, 0),
@@ -599,6 +599,10 @@ float dcptilt_td3_actor_forward(uint8_t actor_index,
 // lambda(k+1) = constrain(lambda(k) + lambda_dot*0.05, 0, 1)
 float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
 {
+    // This flag is consumed by dcptilt_update() after the tilt command is
+    // published. It is true only on an actual scheduled 20 Hz Actor update.
+    dcptilt_td3_runtime_updated = false;
+
     const int8_t profile = dcptilt_profile.get();
     if (profile < DCPT_PROFILE_TD3_A || profile > DCPT_PROFILE_TD3_C) {
         return constrain_float(dcptilt_td3_lambda, 0.0f, 1.0f);
@@ -615,6 +619,17 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
 
     // Keep the sampling grid tied to 50 ms rather than accumulating loop jitter.
     dcptilt_td3_last_update_ms += DCPTILT_TD3_PERIOD_MS;
+
+    // Start timing only after the scheduler has determined that this is a real
+    // Actor sample. TotalUS therefore measures one policy execution, not the
+    // much faster outer ArduPilot loop calls that simply reuse the previous
+    // lambda.
+    dcptilt_td3_runtime_updated = true;
+    dcptilt_td3_runtime_start_us = AP_HAL::micros();
+    dcptilt_td3_actor_us = 0U;
+    dcptilt_td3_proj_us = 0U;
+    dcptilt_td3_total_us = 0U;
+    dcptilt_td3_runtime_seq++;
 
     const float altitude_m =
         quadplane.inertial_nav.get_position_z_up_cm() * 0.01f;
@@ -796,11 +811,19 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
         motor_proxy_norm + 0.3858f;
 
     const uint8_t actor_index = uint8_t(profile - DCPT_PROFILE_TD3_A);
+
+    // ActorUS: ONLY the neural-network forward pass.
+    const uint32_t actor_start_us = AP_HAL::micros();
     dcptilt_td3_output = dcptilt_td3_actor_forward(
         actor_index,
         dcptilt_td3_eh_m,
         dcptilt_td3_vnorm,
         dcptilt_td3_motor_norm);
+    const uint32_t actor_end_us = AP_HAL::micros();
+    dcptilt_td3_actor_us = actor_end_us - actor_start_us;
+
+    // ProjUS begins after the Actor has produced its scalar action.
+    const uint32_t proj_start_us = actor_end_us;
 
     const float td3_rate_scale =
         constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
@@ -813,6 +836,11 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
         dcptilt_td3_lambda + dcptilt_td3_delta_lambda,
         0.0f,
         1.0f);
+
+    // Projection/mapping timing ends once the feasible lambda command has
+    // been formed. Servo-output publication is intentionally accounted for
+    // later in TotalUS, not in ProjUS.
+    dcptilt_td3_proj_us = AP_HAL::micros() - proj_start_us;
 
     return dcptilt_td3_lambda;
 }
@@ -1416,7 +1444,17 @@ float Tiltrotor::dcptilt_capture_forward_output() const
 void Tiltrotor::dcptilt_write_log()
 {
     const uint32_t now = AP_HAL::millis();
-    if (!dcptilt_enabled() || (now - dcptilt_last_log_ms < 40U)) {
+
+    // Use the latched forward-transition selection while it exists. This keeps
+    // DCPT diagnostics running even if Q_TILT_DCPT_EN is edited after the
+    // transition has already been safely latched.
+    const bool dcptilt_selected =
+        dcptilt_transition_active ||
+        (transition != nullptr &&
+         transition->forward_transition_selection_latched &&
+         transition->forward_transition_use_dcptilt);
+
+    if (!dcptilt_selected || (now - dcptilt_last_log_ms < 40U)) {
         return;
     }
     dcptilt_last_log_ms = now;
@@ -2229,6 +2267,12 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_td3_output = 0.0f;
     tiltrotor.dcptilt_td3_lambda_rate = 0.0f;
     tiltrotor.dcptilt_td3_delta_lambda = 0.0f;
+    tiltrotor.dcptilt_td3_runtime_updated = false;
+    tiltrotor.dcptilt_td3_runtime_start_us = 0U;
+    tiltrotor.dcptilt_td3_actor_us = 0U;
+    tiltrotor.dcptilt_td3_proj_us = 0U;
+    tiltrotor.dcptilt_td3_total_us = 0U;
+    tiltrotor.dcptilt_td3_runtime_seq = 0U;
     tiltrotor.dcptilt_td3_speed_used_mps = 0.0f;
     tiltrotor.dcptilt_td3_speed_equiv_mps = 0.0f;
     tiltrotor.dcptilt_td3_airspeed_mps = 0.0f;
@@ -2280,12 +2324,55 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_yaw_lock_active = false;
     tiltrotor.dcptilt_yaw_target_cd = 0.0f;
 
+    forward_transition_selection_latched = false;
+    forward_transition_use_dcptilt = false;
     dcptilt_primary_transition_complete = false;
 }
 
 void Tiltrotor_Transition::update()
 {
-    if (!tiltrotor.dcptilt_enabled()) {
+    // Do not create a persistent selector latch while disarmed. Preserve the
+    // historical disarmed behavior, but only latch once an armed forward
+    // transition is actually being flown.
+    if (!plane.arming.is_armed_and_safety_off()) {
+        forward_transition_selection_latched = false;
+        forward_transition_use_dcptilt = false;
+
+        if (tiltrotor.dcptilt_enabled()) {
+            dcptilt_update();
+        } else {
+            SLT_Transition::update();
+        }
+        return;
+    }
+
+    // Safety-critical forward-transition selection:
+    // sample Q_TILT_DCPT_EN once and hold that choice for the whole forward
+    // transition. A GCS parameter write cannot swap transition controllers
+    // halfway through flight.
+    if (!forward_transition_selection_latched) {
+        forward_transition_selection_latched = true;
+        forward_transition_use_dcptilt = tiltrotor.dcptilt_enabled();
+
+        gcs().send_text(
+            MAV_SEVERITY_INFO,
+            forward_transition_use_dcptilt ?
+                "Tilt FW: DCPT latched" :
+                "Tilt FW: AP native latched");
+
+#if HAL_LOGGING_ENABLED
+        AP::logger().Write(
+            "DCSF",
+            "TimeUS,Sel,Param,Tilt",
+            "Qbbf",
+            AP_HAL::micros64(),
+            (int8_t)forward_transition_use_dcptilt,
+            (int8_t)tiltrotor.dcptilt_enable.get(),
+            tiltrotor.current_tilt * 90.0f);
+#endif
+    }
+
+    if (!forward_transition_use_dcptilt) {
         SLT_Transition::update();
         return;
     }
@@ -2303,6 +2390,43 @@ void Tiltrotor_Transition::update()
 
 void Tiltrotor_Transition::VTOL_update()
 {
+    // Every FW->VTOL transition is intentionally handed to ArduPilot's native
+    // SLT path. If the pilot switches back to a Q mode while DCPTilt is still
+    // active, treat that as an explicit abort: do NOT first command 90 deg;
+    // start the native return transition from the current physical tilt.
+    const bool dcptilt_abort =
+        forward_transition_selection_latched &&
+        forward_transition_use_dcptilt &&
+        tiltrotor.dcptilt_transition_active;
+
+    const bool had_forward_selection = forward_transition_selection_latched;
+
+    if (dcptilt_abort) {
+        const float abort_elapsed_s = tiltrotor.dcptilt_elapsed_s;
+        const float abort_tilt_deg = tiltrotor.current_tilt * 90.0f;
+        const int8_t abort_profile = tiltrotor.dcptilt_profile.get();
+
+        gcs().send_text(
+            MAV_SEVERITY_WARNING,
+            "DCPTilt ABORT %.1fs %.1fdeg -> AP VTOL",
+            (double)abort_elapsed_s,
+            (double)abort_tilt_deg);
+
+#if HAL_LOGGING_ENABLED
+        AP::logger().Write(
+            "DCSA",
+            "TimeUS,Code,Elap,Tilt,Prof",
+            "Qbffb",
+            AP_HAL::micros64(),
+            (int8_t)1,
+            abort_elapsed_s,
+            abort_tilt_deg,
+            abort_profile);
+#endif
+    } else if (had_forward_selection) {
+        gcs().send_text(MAV_SEVERITY_INFO, "Tilt VTOL: AP native");
+    }
+
     dcptilt_reset_state();
     SLT_Transition::VTOL_update();
 }
@@ -2358,6 +2482,12 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_elapsed_s = 0.0f;
         tiltrotor.dcptilt_target_tilt = 0.0f;
         tiltrotor.dcptilt_td3_last_update_ms = now;
+        tiltrotor.dcptilt_td3_runtime_updated = false;
+        tiltrotor.dcptilt_td3_runtime_start_us = 0U;
+        tiltrotor.dcptilt_td3_actor_us = 0U;
+        tiltrotor.dcptilt_td3_proj_us = 0U;
+        tiltrotor.dcptilt_td3_total_us = 0U;
+        tiltrotor.dcptilt_td3_runtime_seq = 0U;
         tiltrotor.dcptilt_td3_lambda = 0.0f;
         tiltrotor.dcptilt_td3_eh_m = 0.0f;
         tiltrotor.dcptilt_td3_eh_raw_m = 0.0f;
@@ -2454,6 +2584,40 @@ void Tiltrotor_Transition::dcptilt_update()
     // allocation. Native Tiltrotor::tilt_compensate() is bypassed while
     // DCPTilt is active, so there is no second 1/cos compensation.
     tiltrotor.dcptilt_set_tilt_direct(tiltrotor.dcptilt_target_tilt);
+
+    // Runtime log for the TD3 online trajectory module.
+    //
+    // The policy runs at 20 Hz, so the hard computation budget is 50 ms.
+    // Logging is performed AFTER TotalUS is captured, which prevents the
+    // logger write itself from inflating the measured online execution time.
+    if (tiltrotor.dcptilt_td3_runtime_updated) {
+        tiltrotor.dcptilt_td3_total_us =
+            AP_HAL::micros() - tiltrotor.dcptilt_td3_runtime_start_us;
+
+        static constexpr uint32_t TD3_POLICY_BUDGET_US =
+            DCPTILT_TD3_PERIOD_MS * 1000U;
+
+        const int8_t runtime_miss =
+            (tiltrotor.dcptilt_td3_total_us > TD3_POLICY_BUDGET_US) ? 1 : 0;
+
+#if HAL_LOGGING_ENABLED
+        AP::logger().Write(
+            "RLT",
+            "TimeUS,ActorUS,ProjUS,TotalUS,Miss,Seq",
+            "QIIIbI",
+            AP_HAL::micros64(),
+            tiltrotor.dcptilt_td3_actor_us,
+            tiltrotor.dcptilt_td3_proj_us,
+            tiltrotor.dcptilt_td3_total_us,
+            runtime_miss,
+            tiltrotor.dcptilt_td3_runtime_seq);
+#endif
+
+        // Consume the sample flag so a faster outer loop cannot write the
+        // same 20 Hz timing sample more than once.
+        tiltrotor.dcptilt_td3_runtime_updated = false;
+    }
+
     tiltrotor.dcptilt_update_altitude_controller();
 
     plane.TECS_controller.use_synthetic_airspeed();
@@ -2574,7 +2738,8 @@ bool Tiltrotor_Transition::update_yaw_target(float& yaw_target_cd)
     // DCPTilt primary transition: hold the heading captured at transition
     // entry. QuadPlane::multicopter_attitude_rate_update() uses this hook to
     // enable multicopter attitude control with an absolute yaw target.
-    if (tiltrotor.dcptilt_enabled() &&
+    if (forward_transition_selection_latched &&
+        forward_transition_use_dcptilt &&
         tiltrotor.dcptilt_transition_active &&
         tiltrotor.dcptilt_yaw_lock_active) {
         yaw_target_cd = tiltrotor.dcptilt_yaw_target_cd;
@@ -2596,7 +2761,8 @@ bool Tiltrotor_Transition::show_vtol_view() const
     bool show_vtol = quadplane.in_vtol_mode();
 
     if (!show_vtol &&
-        tiltrotor.dcptilt_enabled() &&
+        forward_transition_selection_latched &&
+        forward_transition_use_dcptilt &&
         tiltrotor.dcptilt_transition_active &&
         tiltrotor.dcptilt_yaw_lock_active) {
         // DCPTilt uses the multicopter attitude controller with an absolute
