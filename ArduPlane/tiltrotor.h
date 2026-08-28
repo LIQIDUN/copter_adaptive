@@ -138,8 +138,13 @@ public:
     AP_Float dcptilt_nmpc_pitch_gain_deg;
     AP_Float dcptilt_nmpc_pitch_max_deg;
 
-    // TD3 trajectory-generation parameter (PROF=6..8 only).
+    // TD3 trajectory-generation parameters (PROF=6..8 only).
     AP_Float dcptilt_td3_rate_scale;
+    AP_Int8 dcptilt_td3_speed_mode;
+    AP_Float dcptilt_td3_flat_speed_mps;
+    AP_Float dcptilt_td3_speed_exponent;
+    AP_Float dcptilt_td3_eh_freeze_s;
+    AP_Float dcptilt_td3_eh_limit_m;
 
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
@@ -151,18 +156,30 @@ public:
     // Closed-loop TD3 tilt-profile state (PROF=6..8).
     // Actor inference runs at 20 Hz. Training observations are:
     //   eh = z_NED-z_ref = h_ref-h
-    //   Vnorm = 1.2*V/20
+    //   Vnorm = 1.2*V/20, with V source selected by Q_TILT_DCPT_TD3V
     //   MotorInput = DCPTilt normalized motor-thrust command + 0.3858
     // The network output is converted to normalized tilt rate by
     // Q_TILT_DCPT_TD3S, then integrated into lambda in [0,1].
     uint32_t dcptilt_td3_last_update_ms = 0;
     float dcptilt_td3_lambda = 0.0f;
     float dcptilt_td3_eh_m = 0.0f;
+    float dcptilt_td3_eh_raw_m = 0.0f;
+    float dcptilt_td3_eh_frozen_m = 0.0f;
+    bool dcptilt_td3_eh_frozen = false;
     float dcptilt_td3_vnorm = 0.0f;
     float dcptilt_td3_motor_norm = 0.0f;
     float dcptilt_td3_output = 0.0f;
     float dcptilt_td3_lambda_rate = 0.0f;
     float dcptilt_td3_delta_lambda = 0.0f;
+
+    // TD3 speed-source diagnostics. These are sampled on the same 20 Hz grid
+    // as the actor observation, so DCTV can be compared directly with DCTD.Vn.
+    float dcptilt_td3_speed_used_mps = 0.0f;
+    float dcptilt_td3_speed_equiv_mps = 0.0f;
+    float dcptilt_td3_airspeed_mps = 0.0f;
+    float dcptilt_td3_ned3_speed_mps = 0.0f;
+    float dcptilt_td3_legacy_speed_mps = 0.0f;
+    bool dcptilt_td3_airspeed_valid = false;
 
     // DCPTilt controller-allocation state. These two coefficients reproduce
     // the selected FUZZ / SWITCH / NMPC / FIS allocation strategy.

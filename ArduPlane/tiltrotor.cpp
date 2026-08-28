@@ -320,6 +320,49 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_TD3S", 38, Tiltrotor, dcptilt_td3_rate_scale, 0.084f),
 
+    // @Param: DCPT_TD3V
+    // @DisplayName: DCPTilt TD3 speed source
+    // @Description: Selects the raw speed used only by TD3 profiles 6 through 8 before Vnorm=1.2*V/20. Mode 0 reproduces the old strategy-speed path (NED 3D velocity magnitude when available). Mode 1 uses the ArduPilot AHRS airspeed estimate and falls back to the old strategy-speed path only if no valid airspeed estimate is available. Mode 2 uses groundspeed for diagnosis. Mode 3 uses NED 3D velocity magnitude directly and falls back to groundspeed if NED velocity is unavailable.
+    // @Values: 0:LegacyStrategy,1:AirspeedAuto,2:Groundspeed,3:NED3D
+    // @Range: 0 3
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TD3V", 39, Tiltrotor, dcptilt_td3_speed_mode, 1),
+
+    // @Param: DCPT_TD3VF
+    // @DisplayName: DCPTilt TD3 platform flat-flight airspeed
+    // @Description: Typical steady flat-flight airspeed of the CURRENT aircraft in m/s. The selected TD3 speed is mapped to the 25 m/s training-aircraft speed scale before applying the original Vnorm normalization. Set 25 to reproduce the old normalization. For the present SITL aircraft use about 18 m/s.
+    // @Units: m/s
+    // @Range: 5 50
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TD3F", 40, Tiltrotor, dcptilt_td3_flat_speed_mps, 25.0f),
+
+    // @Param: DCPT_VEXP
+    // @DisplayName: DCPTilt TD3 speed normalization exponent
+    // @Description: Diagnostic exponent for the TD3 speed observation. Vnorm = 1.5*(Vused/Vflat)^VEXP. Set 1.0 for the current linear speed scaling. Set 2.0 to test a normalized dynamic-pressure/lift-like squared-speed scaling. TD3 profiles 6 through 8 only.
+    // @Range: 1 2
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_VEXP", 41, Tiltrotor, dcptilt_td3_speed_exponent, 1.0f),
+
+    // @Param: DCPT_EHF
+    // @DisplayName: DCPTilt TD3 Eh freeze time
+    // @Description: Diagnostic only. Time after transition start at which the TD3 height-error observation Eh is frozen and held for the remainder of the transition. Set 0 to disable. For the proposed late-transition diagnosis use 20 seconds. TD3 profiles 6 through 8 only.
+    // @Units: s
+    // @Range: 0 60
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_EHF", 42, Tiltrotor, dcptilt_td3_eh_freeze_s, 0.0f),
+
+    // @Param: DCPT_EHL
+    // @DisplayName: DCPTilt TD3 Eh input limit
+    // @Description: Absolute limit applied only to the TD3 actor height-error observation. The raw NED-equivalent Eh remains available for logging and the altitude controller is NOT limited. Set 0 to disable clipping. The trained policy was primarily exposed to about +/-0.5 m, so 0.5 m is the recommended/default limit.
+    // @Units: m
+    // @Range: 0 2
+    // @Increment: 0.05
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_EHL", 43, Tiltrotor, dcptilt_td3_eh_limit_m, 0.5f),
+
     AP_GROUPEND
 };
 
@@ -551,7 +594,7 @@ float dcptilt_td3_actor_forward(uint8_t actor_index,
 } // namespace
 
 // PROF=6..8: incremental TD3 closed-loop tilt trajectory.
-// x = [h-h_ref, 1.2*V/20, DCPTilt normalized motor-thrust command + 0.3858].
+// x = [h_ref-h (NED-equivalent), 1.2*V/20, DCPTilt normalized motor-thrust command + 0.3858].
 // lambda_dot = Q_TILT_DCPT_TD3S * actor_output
 // lambda(k+1) = constrain(lambda(k) + lambda_dot*0.05, 0, 1)
 float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
@@ -590,15 +633,146 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
     //
     // A positive Eh means the aircraft is below the reference altitude,
     // matching the original NED training convention.
-    dcptilt_td3_eh_m =
+    dcptilt_td3_eh_raw_m =
         dcptilt_alt_target_valid ? (dcptilt_alt_target_m - altitude_m) : 0.0f;
 
-    // Training observation definition:
-    //   Vnorm = 1.2 * V / 20 = 0.06 * V
-    // Do not clip the upper end to 1: the trained observation itself can
-    // exceed 1 when V > 16.6667 m/s.
+    // Optional late-transition Eh freeze diagnostic.
+    //
+    // EHF=0: normal policy input, Eh follows the aircraft continuously.
+    // EHF>0: when elapsed time first reaches EHF, capture the current NED-
+    // equivalent Eh and hold that same value for the remaining transition.
+    //
+    // This does NOT alter the altitude controller. It changes only the
+    // observation sent to the TD3 actor.
+    const float eh_freeze_s =
+        constrain_float(dcptilt_td3_eh_freeze_s.get(), 0.0f, 60.0f);
+
+    float td3_eh_candidate_m = dcptilt_td3_eh_raw_m;
+
+    if (eh_freeze_s > 0.0f) {
+        if (!dcptilt_td3_eh_frozen && dcptilt_elapsed_s >= eh_freeze_s) {
+            dcptilt_td3_eh_frozen_m = dcptilt_td3_eh_raw_m;
+            dcptilt_td3_eh_frozen = true;
+        }
+
+        td3_eh_candidate_m =
+            dcptilt_td3_eh_frozen ?
+            dcptilt_td3_eh_frozen_m :
+            dcptilt_td3_eh_raw_m;
+    } else {
+        dcptilt_td3_eh_frozen = false;
+        dcptilt_td3_eh_frozen_m = 0.0f;
+    }
+
+    // Keep the actor observation inside the height-error region represented
+    // during training. This clipping affects ONLY the TD3 actor input.
+    // The altitude controller still sees and acts on the full real error.
+    const float eh_limit_m =
+        constrain_float(dcptilt_td3_eh_limit_m.get(), 0.0f, 2.0f);
+
+    if (eh_limit_m > 0.0f) {
+        dcptilt_td3_eh_m =
+            constrain_float(td3_eh_candidate_m, -eh_limit_m, eh_limit_m);
+    } else {
+        dcptilt_td3_eh_m = td3_eh_candidate_m;
+    }
+
+    // TD3 speed-source diagnostic.
+    //
+    // The original policy's V is expected to be AIRSPEED. The old DCPTilt
+    // implementation instead used dcptilt_strategy_speed(), whose first
+    // choice is the 3D NED velocity magnitude (ground-relative).
+    //
+    // Sample all candidate quantities on the actor's 20 Hz grid so the log
+    // can diagnose the semantics without changing the rest of the controller.
+    float airspeed_mps = 0.0f;
+    dcptilt_td3_airspeed_valid =
+        quadplane.ahrs.airspeed_estimate(airspeed_mps) &&
+        isfinite(airspeed_mps) &&
+        airspeed_mps >= 0.0f;
+    dcptilt_td3_airspeed_mps =
+        dcptilt_td3_airspeed_valid ? airspeed_mps : 0.0f;
+
+    Vector3f velocity_ned;
+    if (quadplane.ahrs.get_velocity_NED(velocity_ned)) {
+        dcptilt_td3_ned3_speed_mps = velocity_ned.length();
+    } else {
+        dcptilt_td3_ned3_speed_mps = 0.0f;
+    }
+
+    dcptilt_td3_legacy_speed_mps =
+        MAX(dcptilt_strategy_speed(), 0.0f);
+
+    const int8_t td3_speed_mode =
+        constrain_int16(dcptilt_td3_speed_mode.get(), 0, 3);
+
+    switch (td3_speed_mode) {
+    case 1: // ArduPilot AHRS airspeed; universal SITL/real-airframe path
+        dcptilt_td3_speed_used_mps =
+            dcptilt_td3_airspeed_valid ?
+            dcptilt_td3_airspeed_mps :
+            dcptilt_td3_legacy_speed_mps;
+        break;
+
+    case 2: // groundspeed diagnostic
+        dcptilt_td3_speed_used_mps =
+            MAX(quadplane.ahrs.groundspeed(), 0.0f);
+        break;
+
+    case 3: // explicit NED 3D magnitude diagnostic
+        dcptilt_td3_speed_used_mps =
+            (dcptilt_td3_ned3_speed_mps > 0.0f) ?
+            dcptilt_td3_ned3_speed_mps :
+            MAX(quadplane.ahrs.groundspeed(), 0.0f);
+        break;
+
+    case 0:
+    default: // exact legacy strategy-speed behavior
+        dcptilt_td3_speed_used_mps =
+            dcptilt_td3_legacy_speed_mps;
+        break;
+    }
+
+    // Platform-speed diagnostic normalization.
+    //
+    // The training aircraft's nominal flat-flight airspeed was about 25 m/s.
+    // VEq is retained for comparison with the previous linear mapping:
+    //
+    //   V_equiv = V_used * 25 / V_flat_current
+    //
+    // The actor speed observation is now diagnostic-configurable:
+    //
+    //   Vnorm = 1.5 * (V_used / V_flat_current)^p
+    //
+    // where p = Q_TILT_DCPT_VEXP.
+    //
+    // p=1:
+    //   exactly reproduces v3.20_vscale:
+    //   Vnorm = 1.5*V/Vflat = 1.2*V_equiv/20
+    //
+    // p=2:
+    //   tests a normalized dynamic-pressure / lift-like V^2 relationship
+    //   while preserving Vnorm=1.5 at the configured flat-flight speed.
+    static constexpr float DCPTILT_TD3_TRAIN_FLAT_SPEED_MPS = 25.0f;
+
+    const float platform_flat_speed_mps =
+        MAX(dcptilt_td3_flat_speed_mps.get(), 1.0f);
+
+    const float speed_used_nonnegative =
+        MAX(dcptilt_td3_speed_used_mps, 0.0f);
+
+    dcptilt_td3_speed_equiv_mps =
+        speed_used_nonnegative *
+        (DCPTILT_TD3_TRAIN_FLAT_SPEED_MPS / platform_flat_speed_mps);
+
+    const float speed_ratio =
+        speed_used_nonnegative / platform_flat_speed_mps;
+
+    const float speed_exponent =
+        constrain_float(dcptilt_td3_speed_exponent.get(), 1.0f, 2.0f);
+
     dcptilt_td3_vnorm =
-        MAX(dcptilt_strategy_speed(), 0.0f) * (1.2f / 20.0f);
+        1.5f * powf(speed_ratio, speed_exponent);
 
     // Training observation 3 is intended to represent normalized motor speed.
     // For this ArduPilot implementation use the final normalized rotor-thrust
@@ -1322,6 +1496,45 @@ void Tiltrotor::dcptilt_write_log()
             dcptilt_td3_lambda_rate,
             dcptilt_td3_delta_lambda,
             dcptilt_td3_lambda);
+
+        // TD3 raw-speed diagnostics. VUse is the exact raw V used to form
+        // DCTD.Vn. VAS is AHRS airspeed, VN3 is NED 3D velocity magnitude,
+        // VLeg is the historical dcptilt_strategy_speed(), and GSpd is
+        // groundspeed. ASOK=1 means AHRS airspeed was valid at the actor sample.
+        AP::logger().Write(
+            "DCTV",
+            "TimeUS,Mode,VUse,VEq,VAS,VN3,VLeg,GSpd,VFlt,Vn,ASOK",
+            "Qbffffffffb",
+            AP_HAL::micros64(),
+            (int8_t)constrain_int16(dcptilt_td3_speed_mode.get(), 0, 3),
+            dcptilt_td3_speed_used_mps,
+            dcptilt_td3_speed_equiv_mps,
+            dcptilt_td3_airspeed_mps,
+            dcptilt_td3_ned3_speed_mps,
+            dcptilt_td3_legacy_speed_mps,
+            MAX(quadplane.ahrs.groundspeed(), 0.0f),
+            MAX(dcptilt_td3_flat_speed_mps.get(), 1.0f),
+            dcptilt_td3_vnorm,
+            (int8_t)dcptilt_td3_airspeed_valid);
+
+        // TD3 observation diagnostics:
+        // VExp is the speed-normalization exponent.
+        // EHF is the configured Eh freeze time.
+        // EHL is the actor-input absolute Eh limit.
+        // ERaw is the live NED-equivalent Eh.
+        // EUse is the actual clipped value sent to the actor.
+        // Held=1 means Eh has already been latched by EHF.
+        AP::logger().Write(
+            "DCTE",
+            "TimeUS,VExp,EHF,EHL,ERaw,EUse,Held",
+            "Qfffffb",
+            AP_HAL::micros64(),
+            constrain_float(dcptilt_td3_speed_exponent.get(), 1.0f, 2.0f),
+            constrain_float(dcptilt_td3_eh_freeze_s.get(), 0.0f, 60.0f),
+            constrain_float(dcptilt_td3_eh_limit_m.get(), 0.0f, 2.0f),
+            dcptilt_td3_eh_raw_m,
+            dcptilt_td3_eh_m,
+            (int8_t)dcptilt_td3_eh_frozen);
     }
 
     // MODE=1 historical hard-switch handover diagnostics.
@@ -2008,11 +2221,20 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_td3_last_update_ms = 0;
     tiltrotor.dcptilt_td3_lambda = 0.0f;
     tiltrotor.dcptilt_td3_eh_m = 0.0f;
+    tiltrotor.dcptilt_td3_eh_raw_m = 0.0f;
+    tiltrotor.dcptilt_td3_eh_frozen_m = 0.0f;
+    tiltrotor.dcptilt_td3_eh_frozen = false;
     tiltrotor.dcptilt_td3_vnorm = 0.0f;
     tiltrotor.dcptilt_td3_motor_norm = 0.0f;
     tiltrotor.dcptilt_td3_output = 0.0f;
     tiltrotor.dcptilt_td3_lambda_rate = 0.0f;
     tiltrotor.dcptilt_td3_delta_lambda = 0.0f;
+    tiltrotor.dcptilt_td3_speed_used_mps = 0.0f;
+    tiltrotor.dcptilt_td3_speed_equiv_mps = 0.0f;
+    tiltrotor.dcptilt_td3_airspeed_mps = 0.0f;
+    tiltrotor.dcptilt_td3_ned3_speed_mps = 0.0f;
+    tiltrotor.dcptilt_td3_legacy_speed_mps = 0.0f;
+    tiltrotor.dcptilt_td3_airspeed_valid = false;
     tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
     tiltrotor.dcptilt_mc_weight = 1.0f;
     tiltrotor.dcptilt_fw_weight = 0.0f;
@@ -2138,11 +2360,20 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_td3_last_update_ms = now;
         tiltrotor.dcptilt_td3_lambda = 0.0f;
         tiltrotor.dcptilt_td3_eh_m = 0.0f;
+        tiltrotor.dcptilt_td3_eh_raw_m = 0.0f;
+        tiltrotor.dcptilt_td3_eh_frozen_m = 0.0f;
+        tiltrotor.dcptilt_td3_eh_frozen = false;
         tiltrotor.dcptilt_td3_vnorm = 0.0f;
         tiltrotor.dcptilt_td3_motor_norm = 0.0f;
         tiltrotor.dcptilt_td3_output = 0.0f;
         tiltrotor.dcptilt_td3_lambda_rate = 0.0f;
         tiltrotor.dcptilt_td3_delta_lambda = 0.0f;
+        tiltrotor.dcptilt_td3_speed_used_mps = 0.0f;
+        tiltrotor.dcptilt_td3_speed_equiv_mps = 0.0f;
+        tiltrotor.dcptilt_td3_airspeed_mps = 0.0f;
+        tiltrotor.dcptilt_td3_ned3_speed_mps = 0.0f;
+        tiltrotor.dcptilt_td3_legacy_speed_mps = 0.0f;
+        tiltrotor.dcptilt_td3_airspeed_valid = false;
         tiltrotor.dcptilt_mc_weight = 1.0f;
         tiltrotor.dcptilt_fw_weight = 0.0f;
         tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
@@ -2247,6 +2478,10 @@ void Tiltrotor_Transition::dcptilt_update()
     quadplane.motors_output();
     set_last_fw_pitch();
 
+    // Timed completion restored for all profiles, including TD3 Actor
+    // profiles 6/7/8. The Actor determines the natural tilt trajectory
+    // during the configured transition window; once Q_TILT_DCPT_TIME
+    // expires, the state machine finishes the remaining tilt to 90 deg.
     if (tiltrotor.dcptilt_progress >= 1.0f) {
         tiltrotor.dcptilt_target_tilt = 1.0f;
         tiltrotor.dcptilt_set_tilt_direct(1.0f);
