@@ -1843,7 +1843,76 @@ void QuadPlane::update(void)
     }
 
     const uint32_t now = AP_HAL::millis();
-    if (!in_vtol_mode() && !in_vtol_airbrake()) {
+
+    // Integrator-safe FW -> VTOL handover. This is intentionally before the
+    // first Q-mode motors_output(), so stale MC rate-I cannot be released for
+    // even one full-authority cycle on an abort or normal VTOL return.
+    const bool dcptilt_now_vtol_path = in_vtol_mode() || in_vtol_airbrake();
+    if (dcptilt_now_vtol_path && !tiltrotor.dcptilt_prev_vtol_path) {
+        const bool dcptilt_abort_entry = tiltrotor.dcptilt_transition_active;
+        const int8_t phase_before = dcptilt_abort_entry ? 30 : 40;
+        const int8_t phase_after  = dcptilt_abort_entry ? 31 : 41;
+
+#if HAL_LOGGING_ENABLED
+        const auto &iv0_mc_r = attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &iv0_mc_p = attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &iv0_mc_y = attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &iv0_fw_r = plane.rollController.get_pid_info();
+        const auto &iv0_fw_p = plane.pitchController.get_pid_info();
+        const auto &iv0_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            phase_before,
+            iv0_mc_r.I,
+            iv0_mc_p.I,
+            iv0_mc_y.I,
+            iv0_fw_r.I,
+            iv0_fw_p.I,
+            iv0_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
+
+        attitude_control->reset_rate_controller_I_terms();
+        plane.rollController.reset_I();
+        plane.pitchController.reset_I();
+        plane.yawController.reset_I();
+
+#if HAL_LOGGING_ENABLED
+        const auto &iv1_mc_r = attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &iv1_mc_p = attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &iv1_mc_y = attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &iv1_fw_r = plane.rollController.get_pid_info();
+        const auto &iv1_fw_p = plane.pitchController.get_pid_info();
+        const auto &iv1_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            phase_after,
+            iv1_mc_r.I,
+            iv1_mc_p.I,
+            iv1_mc_y.I,
+            iv1_fw_r.I,
+            iv1_fw_p.I,
+            iv1_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
+
+        if (dcptilt_abort_entry) {
+            gcs().send_text(MAV_SEVERITY_WARNING,
+                            "DCPTilt abort: attitude I cleared");
+        } else {
+            gcs().send_text(MAV_SEVERITY_INFO,
+                            "VTOL entry: attitude I cleared");
+        }
+    }
+    tiltrotor.dcptilt_prev_vtol_path = dcptilt_now_vtol_path;
+
+    if (!dcptilt_now_vtol_path) {
         // we're in a fixed wing mode, cope with transitions and check
         // for assistance needed
         if (plane.control_mode == &plane.mode_manual ||
@@ -1884,7 +1953,7 @@ void QuadPlane::update(void)
     // DCPTilt altitude-hold pitch target through Plane's native FW pitch
     // controller, while roll remains on the normal FBWA/FBWB path. Weight
     // the native FW control outputs here before Plane's surface mixers run.
-    if (tiltrotor.dcptilt_enabled() && tiltrotor.dcptilt_transition_active) {
+    if (tiltrotor.dcptilt_transition_active) {
         const float fw_weight = constrain_float(tiltrotor.dcptilt_fw_weight, 0.0f, 1.0f);
         SRV_Channels::set_output_scaled(
             SRV_Channel::k_aileron,
@@ -2122,7 +2191,7 @@ void QuadPlane::motors_output(bool run_rate_controller)
         // shared by every experiment, and rotor yaw authority already falls
         // naturally as the rotors tilt forward. Applying MCW here would create
         // an unnecessary second loss of yaw authority.
-        if (tiltrotor.dcptilt_enabled() && tiltrotor.dcptilt_transition_active) {
+        if (tiltrotor.dcptilt_transition_active) {
             const float mc_weight = constrain_float(tiltrotor.dcptilt_mc_weight, 0.0f, 1.0f);
 
             tiltrotor.dcptilt_mc_yaw_raw = motors->get_yaw() + motors->get_yaw_ff();

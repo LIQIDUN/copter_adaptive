@@ -267,6 +267,11 @@ public:
     bool dcptilt_yaw_lock_active = false;
     float dcptilt_yaw_target_cd = 0.0f;
 
+    // Integrator handover safety: remember whether the previous QuadPlane
+    // update was already on the VTOL path. The false->true edge is used to
+    // clear stale attitude I terms BEFORE the first VTOL motors_output().
+    bool dcptilt_prev_vtol_path = true;
+
     uint32_t dcptilt_last_log_ms = 0;
 
     float current_tilt;

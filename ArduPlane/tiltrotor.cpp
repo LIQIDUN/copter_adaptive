@@ -2552,8 +2552,54 @@ void Tiltrotor_Transition::dcptilt_update()
         last_throttle = motors->get_throttle();
         in_forced_transition = false;
 
-        plane.pitchController.reset_I();
+        // Integrator-safe transition entry. Start both MC and FW attitude
+        // controllers from zero I while keeping their attitude targets intact.
+#if HAL_LOGGING_ENABLED
+        const auto &is0_mc_r = quadplane.attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &is0_mc_p = quadplane.attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &is0_mc_y = quadplane.attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &is0_fw_r = plane.rollController.get_pid_info();
+        const auto &is0_fw_p = plane.pitchController.get_pid_info();
+        const auto &is0_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            (int8_t)10,
+            is0_mc_r.I,
+            is0_mc_p.I,
+            is0_mc_y.I,
+            is0_fw_r.I,
+            is0_fw_p.I,
+            is0_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
+        quadplane.attitude_control->reset_rate_controller_I_terms();
         plane.rollController.reset_I();
+        plane.pitchController.reset_I();
+        plane.yawController.reset_I();
+#if HAL_LOGGING_ENABLED
+        const auto &is1_mc_r = quadplane.attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &is1_mc_p = quadplane.attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &is1_mc_y = quadplane.attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &is1_fw_r = plane.rollController.get_pid_info();
+        const auto &is1_fw_p = plane.pitchController.get_pid_info();
+        const auto &is1_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            (int8_t)11,
+            is1_mc_r.I,
+            is1_mc_p.I,
+            is1_mc_y.I,
+            is1_fw_r.I,
+            is1_fw_p.I,
+            is1_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
         quadplane.attitude_control->set_throttle_mix_max(1.0f);
 
         // Lock the heading that existed at transition entry. This is a target
@@ -2684,6 +2730,55 @@ void Tiltrotor_Transition::dcptilt_update()
             SRV_Channel::k_rudder,
             SRV_Channels::get_output_scaled(SRV_Channel::k_rudder) * final_fw_weight);
 
+        // Integrator-safe DCPT -> pure fixed-wing handover. Current-cycle
+        // outputs are already formed; zero I now so the next FW loop rebuilds
+        // from the actual post-transition state.
+#if HAL_LOGGING_ENABLED
+        const auto &id0_mc_r = quadplane.attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &id0_mc_p = quadplane.attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &id0_mc_y = quadplane.attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &id0_fw_r = plane.rollController.get_pid_info();
+        const auto &id0_fw_p = plane.pitchController.get_pid_info();
+        const auto &id0_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            (int8_t)20,
+            id0_mc_r.I,
+            id0_mc_p.I,
+            id0_mc_y.I,
+            id0_fw_r.I,
+            id0_fw_p.I,
+            id0_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
+        quadplane.attitude_control->reset_rate_controller_I_terms();
+        plane.rollController.reset_I();
+        plane.pitchController.reset_I();
+        plane.yawController.reset_I();
+#if HAL_LOGGING_ENABLED
+        const auto &id1_mc_r = quadplane.attitude_control->get_rate_roll_pid().get_pid_info();
+        const auto &id1_mc_p = quadplane.attitude_control->get_rate_pitch_pid().get_pid_info();
+        const auto &id1_mc_y = quadplane.attitude_control->get_rate_yaw_pid().get_pid_info();
+        const auto &id1_fw_r = plane.rollController.get_pid_info();
+        const auto &id1_fw_p = plane.pitchController.get_pid_info();
+        const auto &id1_fw_y = plane.yawController.get_pid_info();
+        AP::logger().Write(
+            "DCSI",
+            "TimeUS,Phase,MRI,MPI,MYI,FRI,FPI,FYI,Tilt",
+            "Qbfffffff",
+            AP_HAL::micros64(),
+            (int8_t)21,
+            id1_mc_r.I,
+            id1_mc_p.I,
+            id1_mc_y.I,
+            id1_fw_r.I,
+            id1_fw_p.I,
+            id1_fw_y.I,
+            tiltrotor.current_tilt * 90.0f);
+#endif
         tiltrotor.dcptilt_transition_active = false;
         tiltrotor.dcptilt_yaw_lock_active = false;
         dcptilt_primary_transition_complete = true;

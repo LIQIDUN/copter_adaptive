@@ -186,8 +186,9 @@ float Plane::stabilize_pitch_get_pitch_out()
     // The pitch target comes from the common transition-entry altitude loop,
     // so FBWA and FBWB use the same altitude-hold pitch command while
     // DCPTilt is active. RC/TECS throttle-to-pitch feed-forward is omitted.
-    if (quadplane.tiltrotor.dcptilt_enabled() &&
-        quadplane.tiltrotor.dcptilt_transition_active) {
+    // Once a DCPT transition is active, the latched transition state is
+    // authoritative. A live Q_TILT_DCPT_EN write must not remove this hook.
+    if (quadplane.tiltrotor.dcptilt_transition_active) {
         // The pitch integrator is reset once at DCPTilt transition entry
         // in Tiltrotor_Transition::dcptilt_update(). Do not reset or
         // disable it here: the fixed-wing pitch controller needs normal
