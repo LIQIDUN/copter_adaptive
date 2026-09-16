@@ -71,6 +71,7 @@ public:
     void dcptilt_set_tilt_direct(float tilt);
     float dcptilt_capture_forward_output() const;
     float dcptilt_update_td3_profile(uint32_t now_ms);
+    void dcptilt_run_td3_shadow(uint32_t now_ms);
     void dcptilt_update_control_weights();
     float dcptilt_fis_fww(float velocity_mps, float tilt_normalized) const;
     float dcptilt_strategy_speed() const;
@@ -153,6 +154,13 @@ public:
     AP_Float dcptilt_td3_eh_freeze_s;
     AP_Float dcptilt_td3_eh_limit_m;
 
+    // Shadow TD3 deployment evaluation.
+    // These do not alter the real tilt trajectory. Profiles 0..5 continue to
+    // use dcptilt_tilt_profile(progress), with progress determined solely by
+    // Q_TILT_DCPT_TIME.
+    AP_Int8 dcptilt_td3_shadow_enable;
+    AP_Int8 dcptilt_td3_shadow_actor;
+
     // DCPTilt transition state shared with the tilt-output path and logger
     bool dcptilt_transition_active = false;
     uint32_t dcptilt_transition_start_ms = 0;
@@ -210,6 +218,27 @@ public:
     float dcptilt_td3_ned3_speed_mps = 0.0f;
     float dcptilt_td3_legacy_speed_mps = 0.0f;
     bool dcptilt_td3_airspeed_valid = false;
+
+    // TD3 shadow inference state. Completely independent from the real
+    // PROF=6..8 TD3 trajectory state above so running a shadow actor cannot
+    // influence the actuator-producing path.
+    uint32_t dcptilt_td3_shadow_last_update_ms = 0;
+    uint32_t dcptilt_td3_shadow_last_sample_us = 0;
+    uint32_t dcptilt_td3_shadow_seq = 0;
+    float dcptilt_td3_shadow_eh_raw_m = 0.0f;
+    float dcptilt_td3_shadow_eh_m = 0.0f;
+    float dcptilt_td3_shadow_eh_frozen_m = 0.0f;
+    bool dcptilt_td3_shadow_eh_frozen = false;
+    float dcptilt_td3_shadow_speed_used_mps = 0.0f;
+    float dcptilt_td3_shadow_vnorm = 0.0f;
+    float dcptilt_td3_shadow_motor_norm = 0.0f;
+    float dcptilt_td3_shadow_output = 0.0f;
+    float dcptilt_td3_shadow_lambda_rate = 0.0f;
+    float dcptilt_td3_shadow_lambda = 0.0f;
+    uint32_t dcptilt_td3_shadow_actor_us = 0;
+    uint32_t dcptilt_td3_shadow_total_us = 0;
+    uint32_t dcptilt_td3_shadow_period_us = 0;
+    int32_t dcptilt_td3_shadow_jitter_us = 0;
 
     // DCPTilt controller-allocation state. These two coefficients reproduce
     // the selected FUZZ / SWITCH / NMPC / FIS allocation strategy.

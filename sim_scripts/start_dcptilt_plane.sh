@@ -74,8 +74,13 @@ sleep 1
 # Plane 使用 legacy ardupilot_gazebo 的 gazebo-zephyr frame。
 # 不使用 master 分支脚本写法，直接从当前 Plane-4.5.7 仓库运行。
 #
+# terminator -u --geometry=800x400+0+250 -T "DCPTilt ArduPlane SITL" -x bash -c \
+# "cd $AUTOTEST_DIR && python3 sim_vehicle.py -v ArduPlane -f gazebo-zephyr --console --map; exec bash" &
+
 terminator -u --geometry=800x400+0+250 -T "DCPTilt ArduPlane SITL" -x bash -c \
-"cd $AUTOTEST_DIR && python3 sim_vehicle.py -v ArduPlane -f gazebo-zephyr --console --map; exec bash" &
+"cd $AUTOTEST_DIR && python3 sim_vehicle.py -v ArduPlane -f gazebo-zephyr \
+--custom-location=30.116608,120.071658,10,0 \
+--console --map; exec bash" &
 
 sleep 3
 

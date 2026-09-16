@@ -381,6 +381,21 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("DCPT_YRM", 45, Tiltrotor, dcptilt_yaw_rate_max_dps, 20.0f),
 
+    // @Param: DCPT_TDSH
+    // @DisplayName: DCPTilt TD3 shadow inference enable
+    // @Description: Runs one TD3 actor at 20 Hz in the background while a time-scheduled interpolation profile 0 through 5 controls the real tilt trajectory. The shadow actor reads the same live observations as the normal TD3 implementation, but its output never changes tilt, controller allocation, altitude control, or transition completion. Intended for real-flight runtime/load evaluation.
+    // @Values: 0:Disabled,1:Enabled
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TDSH", 46, Tiltrotor, dcptilt_td3_shadow_enable, 0),
+
+    // @Param: DCPT_TDSA
+    // @DisplayName: DCPTilt TD3 shadow actor
+    // @Description: Selects which supplied TD3 actor is evaluated by shadow inference. This parameter has no actuator effect. Shadow inference is active only when DCPT_TDSH=1 and DCPT_PROF is one of the time-scheduled interpolation profiles 0 through 5.
+    // @Values: 6:TD3A,7:TD3B,8:TD3C
+    // @Range: 6 8
+    // @User: Advanced
+    AP_GROUPINFO("DCPT_TDSA", 47, Tiltrotor, dcptilt_td3_shadow_actor, 8),
+
     AP_GROUPEND
 };
 
@@ -861,6 +876,211 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
     dcptilt_td3_proj_us = AP_HAL::micros() - proj_start_us;
 
     return dcptilt_td3_lambda;
+}
+
+// Background-only TD3 inference used to evaluate real-flight computational
+// load while PROF=0..5 continues to command the actual interpolation
+// trajectory. This function never writes dcptilt_target_tilt, current_tilt,
+// servo outputs, MCW/FWW, altitude-control state, or transition completion.
+void Tiltrotor::dcptilt_run_td3_shadow(uint32_t now_ms)
+{
+    if (dcptilt_td3_shadow_enable.get() <= 0) {
+        return;
+    }
+
+    const int8_t active_profile = dcptilt_profile.get();
+    if (active_profile < DCPT_PROFILE_LINEAR ||
+        active_profile > DCPT_PROFILE_POPT_D) {
+        // Do not duplicate inference when a real TD3 profile 6..8 is selected.
+        return;
+    }
+
+    if (dcptilt_td3_shadow_last_update_ms == 0U) {
+        dcptilt_td3_shadow_last_update_ms = now_ms;
+        return;
+    }
+
+    if ((now_ms - dcptilt_td3_shadow_last_update_ms) < DCPTILT_TD3_PERIOD_MS) {
+        return;
+    }
+
+    // Keep the shadow actor on the same 20 Hz grid as the real TD3 path.
+    dcptilt_td3_shadow_last_update_ms += DCPTILT_TD3_PERIOD_MS;
+
+    const uint32_t sample_start_us = AP_HAL::micros();
+    if (dcptilt_td3_shadow_last_sample_us == 0U) {
+        dcptilt_td3_shadow_period_us = DCPTILT_TD3_PERIOD_MS * 1000U;
+        dcptilt_td3_shadow_jitter_us = 0;
+    } else {
+        dcptilt_td3_shadow_period_us =
+            sample_start_us - dcptilt_td3_shadow_last_sample_us;
+        dcptilt_td3_shadow_jitter_us =
+            int32_t(dcptilt_td3_shadow_period_us) -
+            int32_t(DCPTILT_TD3_PERIOD_MS * 1000U);
+    }
+    dcptilt_td3_shadow_last_sample_us = sample_start_us;
+    dcptilt_td3_shadow_seq++;
+
+    // Height-error observation: identical sign convention to the real TD3.
+    const float altitude_m =
+        quadplane.inertial_nav.get_position_z_up_cm() * 0.01f;
+    dcptilt_td3_shadow_eh_raw_m =
+        dcptilt_alt_target_valid ? (dcptilt_alt_target_m - altitude_m) : 0.0f;
+
+    const float eh_freeze_s =
+        constrain_float(dcptilt_td3_eh_freeze_s.get(), 0.0f, 60.0f);
+    float td3_eh_candidate_m = dcptilt_td3_shadow_eh_raw_m;
+
+    if (eh_freeze_s > 0.0f) {
+        if (!dcptilt_td3_shadow_eh_frozen &&
+            dcptilt_elapsed_s >= eh_freeze_s) {
+            dcptilt_td3_shadow_eh_frozen_m =
+                dcptilt_td3_shadow_eh_raw_m;
+            dcptilt_td3_shadow_eh_frozen = true;
+        }
+        td3_eh_candidate_m =
+            dcptilt_td3_shadow_eh_frozen ?
+            dcptilt_td3_shadow_eh_frozen_m :
+            dcptilt_td3_shadow_eh_raw_m;
+    } else {
+        dcptilt_td3_shadow_eh_frozen = false;
+        dcptilt_td3_shadow_eh_frozen_m = 0.0f;
+    }
+
+    const float eh_limit_m =
+        constrain_float(dcptilt_td3_eh_limit_m.get(), 0.0f, 2.0f);
+    dcptilt_td3_shadow_eh_m =
+        (eh_limit_m > 0.0f) ?
+        constrain_float(td3_eh_candidate_m, -eh_limit_m, eh_limit_m) :
+        td3_eh_candidate_m;
+
+    // Speed observation: same selectable source and fallbacks as real TD3.
+    float airspeed_mps = 0.0f;
+    const bool airspeed_valid =
+        quadplane.ahrs.airspeed_estimate(airspeed_mps) &&
+        isfinite(airspeed_mps) &&
+        airspeed_mps >= 0.0f;
+
+    Vector3f velocity_ned;
+    const bool have_ned_velocity =
+        quadplane.ahrs.get_velocity_NED(velocity_ned);
+    const float ned3_speed_mps =
+        have_ned_velocity ? velocity_ned.length() : 0.0f;
+    const float legacy_speed_mps =
+        MAX(dcptilt_strategy_speed(), 0.0f);
+
+    const int8_t td3_speed_mode =
+        constrain_int16(dcptilt_td3_speed_mode.get(), 0, 3);
+
+    switch (td3_speed_mode) {
+    case 1:
+        dcptilt_td3_shadow_speed_used_mps =
+            airspeed_valid ? airspeed_mps : legacy_speed_mps;
+        break;
+    case 2:
+        dcptilt_td3_shadow_speed_used_mps =
+            MAX(quadplane.ahrs.groundspeed(), 0.0f);
+        break;
+    case 3:
+        dcptilt_td3_shadow_speed_used_mps =
+            (ned3_speed_mps > 0.0f) ?
+            ned3_speed_mps :
+            MAX(quadplane.ahrs.groundspeed(), 0.0f);
+        break;
+    case 0:
+    default:
+        dcptilt_td3_shadow_speed_used_mps = legacy_speed_mps;
+        break;
+    }
+
+    const float platform_flat_speed_mps =
+        MAX(dcptilt_td3_flat_speed_mps.get(), 1.0f);
+    const float speed_ratio =
+        MAX(dcptilt_td3_shadow_speed_used_mps, 0.0f) /
+        platform_flat_speed_mps;
+    const float speed_exponent =
+        constrain_float(dcptilt_td3_speed_exponent.get(), 1.0f, 2.0f);
+
+    dcptilt_td3_shadow_vnorm =
+        1.5f * powf(speed_ratio, speed_exponent);
+
+    // Same previous-cycle final rotor-thrust command proxy as the real TD3.
+    dcptilt_td3_shadow_motor_norm =
+        constrain_float(dcptilt_throttle_cmd, 0.0f, 1.0f) + 0.3858f;
+
+    const int8_t shadow_profile =
+        constrain_int16(dcptilt_td3_shadow_actor.get(),
+                        DCPT_PROFILE_TD3_A,
+                        DCPT_PROFILE_TD3_C);
+    const uint8_t actor_index =
+        uint8_t(shadow_profile - DCPT_PROFILE_TD3_A);
+
+    const uint32_t actor_start_us = AP_HAL::micros();
+    dcptilt_td3_shadow_output =
+        dcptilt_td3_actor_forward(
+            actor_index,
+            dcptilt_td3_shadow_eh_m,
+            dcptilt_td3_shadow_vnorm,
+            dcptilt_td3_shadow_motor_norm);
+    dcptilt_td3_shadow_actor_us =
+        AP_HAL::micros() - actor_start_us;
+
+    // Integrate a completely private shadow lambda for post-flight comparison.
+    // It is intentionally NOT time-scaled and never reaches the actuator path.
+    const float td3_rate_scale =
+        constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
+    dcptilt_td3_shadow_lambda_rate =
+        td3_rate_scale * dcptilt_td3_shadow_output;
+    dcptilt_td3_shadow_lambda =
+        constrain_float(
+            dcptilt_td3_shadow_lambda +
+            dcptilt_td3_shadow_lambda_rate * DCPTILT_TD3_DT_S,
+            0.0f,
+            1.0f);
+
+    // TotalUS covers live observation acquisition, normalization, Actor
+    // inference, and private shadow projection/integration. Logging below is
+    // deliberately excluded from the measured runtime.
+    dcptilt_td3_shadow_total_us =
+        AP_HAL::micros() - sample_start_us;
+
+    static constexpr uint32_t TD3_POLICY_BUDGET_US =
+        DCPTILT_TD3_PERIOD_MS * 1000U;
+    const int8_t runtime_miss =
+        (dcptilt_td3_shadow_total_us > TD3_POLICY_BUDGET_US) ? 1 : 0;
+
+#if HAL_LOGGING_ENABLED
+    // Runtime/load data for real-flight deployment evaluation.
+    AP::logger().Write(
+        "RLSH",
+        "TimeUS,ActorUS,TotalUS,PeriodUS,JitUS,Miss,Seq",
+        "QIIIibI",
+        AP_HAL::micros64(),
+        dcptilt_td3_shadow_actor_us,
+        dcptilt_td3_shadow_total_us,
+        dcptilt_td3_shadow_period_us,
+        dcptilt_td3_shadow_jitter_us,
+        runtime_miss,
+        dcptilt_td3_shadow_seq);
+
+    // Shadow-network behavior compared with the interpolation trajectory that
+    // is actually commanding the aircraft.
+    AP::logger().Write(
+        "DTSH",
+        "TimeUS,Act,Prof,Prog,TiltT,Eh,VUse,Vn,Mn,Out,Lam",
+        "Qbbffffffff",
+        AP_HAL::micros64(),
+        shadow_profile,
+        active_profile,
+        dcptilt_progress,
+        dcptilt_target_tilt,
+        dcptilt_td3_shadow_eh_m,
+        dcptilt_td3_shadow_speed_used_mps,
+        dcptilt_td3_shadow_vnorm,
+        dcptilt_td3_shadow_motor_norm,
+        dcptilt_td3_shadow_output,
+        dcptilt_td3_shadow_lambda);
+#endif
 }
 
 // Membership functions used by TestTiltFuzzy.fis. Keep these local to this
@@ -2303,6 +2523,25 @@ void Tiltrotor_Transition::dcptilt_reset_state()
     tiltrotor.dcptilt_td3_ned3_speed_mps = 0.0f;
     tiltrotor.dcptilt_td3_legacy_speed_mps = 0.0f;
     tiltrotor.dcptilt_td3_airspeed_valid = false;
+
+    tiltrotor.dcptilt_td3_shadow_last_update_ms = 0U;
+    tiltrotor.dcptilt_td3_shadow_last_sample_us = 0U;
+    tiltrotor.dcptilt_td3_shadow_seq = 0U;
+    tiltrotor.dcptilt_td3_shadow_eh_raw_m = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_eh_m = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_eh_frozen_m = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_eh_frozen = false;
+    tiltrotor.dcptilt_td3_shadow_speed_used_mps = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_vnorm = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_motor_norm = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_output = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_lambda_rate = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_lambda = 0.0f;
+    tiltrotor.dcptilt_td3_shadow_actor_us = 0U;
+    tiltrotor.dcptilt_td3_shadow_total_us = 0U;
+    tiltrotor.dcptilt_td3_shadow_period_us = 0U;
+    tiltrotor.dcptilt_td3_shadow_jitter_us = 0;
+
     tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
     tiltrotor.dcptilt_mc_weight = 1.0f;
     tiltrotor.dcptilt_fw_weight = 0.0f;
@@ -2529,6 +2768,25 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_td3_ned3_speed_mps = 0.0f;
         tiltrotor.dcptilt_td3_legacy_speed_mps = 0.0f;
         tiltrotor.dcptilt_td3_airspeed_valid = false;
+
+        tiltrotor.dcptilt_td3_shadow_last_update_ms = now;
+        tiltrotor.dcptilt_td3_shadow_last_sample_us = 0U;
+        tiltrotor.dcptilt_td3_shadow_seq = 0U;
+        tiltrotor.dcptilt_td3_shadow_eh_raw_m = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_eh_m = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_eh_frozen_m = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_eh_frozen = false;
+        tiltrotor.dcptilt_td3_shadow_speed_used_mps = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_vnorm = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_motor_norm = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_output = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_lambda_rate = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_lambda = 0.0f;
+        tiltrotor.dcptilt_td3_shadow_actor_us = 0U;
+        tiltrotor.dcptilt_td3_shadow_total_us = 0U;
+        tiltrotor.dcptilt_td3_shadow_period_us = 0U;
+        tiltrotor.dcptilt_td3_shadow_jitter_us = 0;
+
         tiltrotor.dcptilt_mc_weight = 1.0f;
         tiltrotor.dcptilt_fw_weight = 0.0f;
         tiltrotor.dcptilt_strategy_speed_mps = 0.0f;
@@ -2653,8 +2911,15 @@ void Tiltrotor_Transition::dcptilt_update()
         tiltrotor.dcptilt_target_tilt =
             tiltrotor.dcptilt_update_td3_profile(now);
     } else {
+        // Profiles 0..5 are the original time-scheduled interpolation
+        // trajectories. Their duration is never hard-coded here:
+        // progress = elapsed / Q_TILT_DCPT_TIME.
         tiltrotor.dcptilt_target_tilt =
             tiltrotor.dcptilt_tilt_profile(tiltrotor.dcptilt_progress);
+
+        // Optional background-only neural-network deployment evaluation.
+        // The shadow Actor never feeds back into target_tilt or any controller.
+        tiltrotor.dcptilt_run_td3_shadow(now);
     }
 
     tiltrotor.dcptilt_update_control_weights();
