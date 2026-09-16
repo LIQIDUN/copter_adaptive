@@ -312,8 +312,8 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     AP_GROUPINFO("DCPT_SWKT", 37, Tiltrotor, dcptilt_switch_pitch_kick_time_s, 1.2f),
 
     // @Param: DCPT_TD3S
-    // @DisplayName: DCPTilt TD3 tilt-rate scale
-    // @Description: Scale applied to the TD3 actor Sigmoid output to obtain normalized tilt rate for profiles 6 through 8. lambda_dot = TD3S * actor_output. The result is integrated at 20 Hz. Default 0.084 reproduces the original candidate scale.
+    // @DisplayName: DCPTilt TD3 base tilt-rate scale
+    // @Description: Base TD3 normalized tilt-rate scale referenced to the original 30 s transition. Both online PROF=6..8 and shadow TD3 use automatic temporal scaling: lambda_dot = TD3S * (30/Q_TILT_DCPT_TIME) * actor_output. TIME=30 reproduces the original rate; TIME=6 applies a 5x temporal scale.
     // @Units: 1/s
     // @Range: 0 1
     // @Increment: 0.001
@@ -585,6 +585,10 @@ namespace {
 
 static constexpr uint32_t DCPTILT_TD3_PERIOD_MS = 50U;
 static constexpr float DCPTILT_TD3_DT_S = 0.05f;
+
+// Original learned-policy transition reference duration.
+// Both online TD3 and shadow TD3 use the same 30/TIME temporal scaling.
+static constexpr float DCPTILT_TD3_REFERENCE_TIME_S = 30.0f;
 
 float dcptilt_td3_actor_forward(uint8_t actor_index,
                                 float eh_m,
@@ -858,10 +862,17 @@ float Tiltrotor::dcptilt_update_td3_profile(uint32_t now_ms)
     // ProjUS begins after the Actor has produced its scalar action.
     const uint32_t proj_start_us = actor_end_us;
 
-    const float td3_rate_scale =
+    const float td3_base_rate_scale =
         constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
+    const float transition_time_s =
+        constrain_float(dcptilt_transition_time_s.get(), 1.0f, 120.0f);
+    const float td3_time_scale =
+        DCPTILT_TD3_REFERENCE_TIME_S / transition_time_s;
+    const float td3_effective_rate_scale =
+        td3_base_rate_scale * td3_time_scale;
+
     dcptilt_td3_lambda_rate =
-        td3_rate_scale * dcptilt_td3_output;
+        td3_effective_rate_scale * dcptilt_td3_output;
     dcptilt_td3_delta_lambda =
         dcptilt_td3_lambda_rate * DCPTILT_TD3_DT_S;
 
@@ -1026,11 +1037,20 @@ void Tiltrotor::dcptilt_run_td3_shadow(uint32_t now_ms)
         AP_HAL::micros() - actor_start_us;
 
     // Integrate a completely private shadow lambda for post-flight comparison.
-    // It is intentionally NOT time-scaled and never reaches the actuator path.
-    const float td3_rate_scale =
+    // Use the SAME temporal scaling as the online TD3 path so that shadow
+    // inference represents how the selected Actor would behave at the current
+    // Q_TILT_DCPT_TIME. It still never reaches the actuator path.
+    const float td3_shadow_base_rate_scale =
         constrain_float(dcptilt_td3_rate_scale.get(), 0.0f, 1.0f);
+    const float shadow_transition_time_s =
+        constrain_float(dcptilt_transition_time_s.get(), 1.0f, 120.0f);
+    const float td3_shadow_time_scale =
+        DCPTILT_TD3_REFERENCE_TIME_S / shadow_transition_time_s;
+    const float td3_shadow_effective_rate_scale =
+        td3_shadow_base_rate_scale * td3_shadow_time_scale;
+
     dcptilt_td3_shadow_lambda_rate =
-        td3_rate_scale * dcptilt_td3_shadow_output;
+        td3_shadow_effective_rate_scale * dcptilt_td3_shadow_output;
     dcptilt_td3_shadow_lambda =
         constrain_float(
             dcptilt_td3_shadow_lambda +

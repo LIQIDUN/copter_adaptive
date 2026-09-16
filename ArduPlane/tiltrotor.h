@@ -146,7 +146,9 @@ public:
     AP_Float dcptilt_nmpc_pitch_gain_deg;
     AP_Float dcptilt_nmpc_pitch_max_deg;
 
-    // TD3 trajectory-generation parameters (PROF=6..8 only).
+    // TD3 trajectory-generation parameters.
+    // TD3S is the base rate at the 30 s reference transition. Both online
+    // PROF=6..8 and shadow TD3 multiply it by 30/Q_TILT_DCPT_TIME.
     AP_Float dcptilt_td3_rate_scale;
     AP_Int8 dcptilt_td3_speed_mode;
     AP_Float dcptilt_td3_flat_speed_mps;
@@ -174,7 +176,8 @@ public:
     //   Vnorm = 1.2*V/20, with V source selected by Q_TILT_DCPT_TD3V
     //   MotorInput = DCPTilt normalized motor-thrust command + 0.3858
     // The network output is converted to normalized tilt rate by
-    // Q_TILT_DCPT_TD3S, then integrated into lambda in [0,1].
+    // Q_TILT_DCPT_TD3S * (30/Q_TILT_DCPT_TIME), then integrated into
+    // lambda in [0,1].
     uint32_t dcptilt_td3_last_update_ms = 0;
     float dcptilt_td3_lambda = 0.0f;
     float dcptilt_td3_eh_m = 0.0f;
